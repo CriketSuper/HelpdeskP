@@ -3,16 +3,22 @@ type: exec
 name: default
 
 steps:
-  - name: build
+  - name: deploy
     commands:
-      - docker stop django
-      - docker rm django
-      - cd /srv/
-      - rm -rf Helpdesk
-      - git clone git@github.com:user/project
-      - cd /srv/Helpdesk
-      - docker build -t project .
-      - docker run --restart always --name django -d -p 1234:1234 -t project
+      - export DEPLOY_DIR=/srv/Helpdesk
+      - export REPO_URL=https://github.com/CriketSuper/HelpdeskP.git
+      - export DEPLOY_BRANCH=master
+      - export ENV_BACKUP=/tmp/helpdesk.env
+      - mkdir -p /srv
+      - if [ -f "$DEPLOY_DIR/.env" ]; then cp "$DEPLOY_DIR/.env" "$ENV_BACKUP"; fi
+      - if [ ! -d "$DEPLOY_DIR/.git" ]; then rm -rf "$DEPLOY_DIR"; git clone -b "$DEPLOY_BRANCH" "$REPO_URL" "$DEPLOY_DIR"; fi
+      - cd "$DEPLOY_DIR"
+      - git fetch origin "$DEPLOY_BRANCH"
+      - git reset --hard "origin/$DEPLOY_BRANCH"
+      - if [ -f "$ENV_BACKUP" ]; then cp "$ENV_BACKUP" .env; fi
+      - docker compose pull db nginx
+      - docker compose up -d --build --remove-orphans
+      - docker compose ps
 
 when:
   event:

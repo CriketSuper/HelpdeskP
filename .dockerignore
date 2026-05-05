@@ -1,0 +1,11 @@
+.git
+.venv
+.tmp
+tmp*
+__pycache__
+*.pyc
+.env
+Helpdesk/db.sqlite3
+Helpdesk/media
+Helpdesk/logs
+Helpdesk/staticfiles

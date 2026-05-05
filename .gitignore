@@ -7,3 +7,5 @@ media/
 logs/
 tmp*
 .vscode/
+Helpdesk/staticfiles/
+Helpdesk/logs/

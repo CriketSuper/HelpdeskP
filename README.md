@@ -30,3 +30,34 @@ python Helpdesk\manage.py runserver
 ```
 
 The first local admin user is created automatically on a new database.
+
+Docker setup:
+
+```powershell
+docker compose up --build
+```
+
+`docker-compose.yml` uses the root `.env` file for runtime variables, but the
+file is not copied into the image. Configuration is passed into containers via
+Compose environment injection.
+
+The compose stack starts three containers:
+
+- `db` on `postgres:alpine`
+- `web` with Django + `gunicorn`
+- `nginx` for proxying the application and serving static/media files
+
+Relevant environment variables for Docker:
+
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `SECRET_KEY`
+- `DEBUG`
+- `ALLOWED_HOSTS`
+
+Application startup inside the `web` container runs:
+
+- `python manage.py migrate --noinput`
+- `python manage.py collectstatic --noinput`
+- `gunicorn helpdesk.wsgi:application --bind 0.0.0.0:8000`
