@@ -6,3 +6,4 @@ Helpdesk/db.sqlite3
 media/
 logs/
 tmp*
+.vscode/
