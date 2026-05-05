@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+Helpdesk/db.sqlite3
+*tmp/
+media/

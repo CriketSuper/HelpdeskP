@@ -3,6 +3,21 @@
 {% block title %}Добавление заявки{% endblock %}
 
 {% block content %}
+<style>
+    .file-picker-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+    }
+
+    .file-picker-status {
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+</style>
+
 <h2 class="ms-2">Добавление заявки</h2>
 <div class="container-fluid">
     <form method="post" enctype="multipart/form-data">
@@ -10,40 +25,77 @@
             {% csrf_token %}
             {{ form.as_p }}
             <div id="files-container"></div>
-            <button type="button" onclick="addFileField()">Добавить файл</button>
+            <button type="button" class="btn btn-outline-secondary" onclick="addFileField()">Добавить файл</button>
             <p><br><input type="submit" value="Добавить заявку"></p>
         </div>
     </form>
 </div>
 
 <script>
+    let fileFieldIndex = 0;
+
+    function updateFileStatus(fileInput, statusNode) {
+        if (!fileInput.files || fileInput.files.length === 0) {
+            statusNode.textContent = "Файлы не выбраны";
+            return;
+        }
+
+        const names = Array.from(fileInput.files).map(file => file.name);
+        statusNode.textContent = names.join(", ");
+    }
+
     function addFileField() {
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.name = 'documents';
-        fileInput.multiple = true;
-        fileInput.addEventListener('change', handleFileChange);
+        const currentIndex = fileFieldIndex++;
+        const fileInputId = `documents-${currentIndex}`;
 
-        const fileNameInput = document.createElement('input');
-        fileNameInput.type = 'text';
-        fileNameInput.name = 'document_names';
-        fileNameInput.placeholder = 'Имя файла';
-        fileNameInput.addEventListener('input', handleFileNameChange);
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.name = "documents";
+        fileInput.id = fileInputId;
+        fileInput.className = "d-none";
+        fileInput.addEventListener("change", function(event) {
+            const fileContainer = event.target.parentNode;
+            const fileNameInput = fileContainer.querySelector('input[type="text"]');
+            const fileStatus = fileContainer.querySelector(".file-picker-status");
 
-        const fileContainer = document.createElement('div');
-        fileContainer.classList.add('file-container');
+            if (event.target.files.length > 0) {
+                fileNameInput.value = event.target.files[0].name;
+            } else {
+                fileNameInput.value = "";
+            }
+
+            updateFileStatus(event.target, fileStatus);
+        });
+
+        const fileTrigger = document.createElement("label");
+        fileTrigger.htmlFor = fileInputId;
+        fileTrigger.className = "btn btn-outline-primary mb-0";
+        fileTrigger.textContent = "Выберите документы";
+
+        const fileStatus = document.createElement("span");
+        fileStatus.className = "file-picker-status";
+        fileStatus.textContent = "Файлы не выбраны";
+
+        const pickerRow = document.createElement("div");
+        pickerRow.className = "file-picker-row";
+        pickerRow.appendChild(fileTrigger);
+        pickerRow.appendChild(fileStatus);
+
+        const fileNameInput = document.createElement("input");
+        fileNameInput.type = "text";
+        fileNameInput.name = "document_names";
+        fileNameInput.placeholder = "Имя файла";
+        fileNameInput.className = "form-control";
+        fileNameInput.addEventListener("input", handleFileNameChange);
+
+        const fileContainer = document.createElement("div");
+        fileContainer.classList.add("file-container", "mb-3");
+        fileContainer.appendChild(pickerRow);
         fileContainer.appendChild(fileNameInput);
         fileContainer.appendChild(fileInput);
 
-        const filesContainer = document.getElementById('files-container');
+        const filesContainer = document.getElementById("files-container");
         filesContainer.appendChild(fileContainer);
-    }
-
-    function handleFileChange(event) {
-        const fileInput = event.target;
-        const fileContainer = fileInput.parentNode;
-        const fileNameInput = fileContainer.querySelector('input[type="text"]');
-        fileNameInput.value = fileInput.files[0].name;
     }
 
     function handleFileNameChange(event) {
@@ -51,11 +103,21 @@
         const fileContainer = fileNameInput.parentNode;
         const fileInput = fileContainer.querySelector('input[type="file"]');
         const file = fileInput.files[0];
+
+        if (!file) {
+            return;
+        }
+
         const newFile = new File([file], fileNameInput.value, { type: file.type });
-        fileInput.files[0] = newFile;
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(newFile);
+        fileInput.files = dataTransfer.files;
+
+        const fileStatus = fileContainer.querySelector(".file-picker-status");
+        updateFileStatus(fileInput, fileStatus);
     }
 
-    window.addEventListener('load', () => {
+    window.addEventListener("load", () => {
         addFileField();
     });
 </script>

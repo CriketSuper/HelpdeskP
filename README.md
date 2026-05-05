@@ -1,16 +1,32 @@
-Helpdesk system, developed for diplom project
+Helpdesk system, developed for diplom project.
 
-change basic variables to your:
+The project is updated to Django 6 and reads configuration from the root
+`.env` file.
 
-  .drone.yml file:
-    12 line: git@github.com:user/project - to your user and project
+Environment variables:
 
-  /helpdesk/helpdesk/settings.py:
-    8 line: secret-key - to your secret-key for django project
-    115 line: email_host - to your email host
-    116 line: email_port - to your email port
-    118 line: email_host_user - to your email host user
-    119 line: email_host_password - to your email host password
+- `SECRET_KEY`
+- `DEBUG`
+- `ALLOWED_HOSTS`
+- `DATABASE_URL`
+- `EMAIL_HOST`
+- `EMAIL_PORT`
+- `EMAIL_USE_SSL`
+- `EMAIL_HOST_USER`
+- `EMAIL_HOST_PASSWORD`
+- `DEFAULT_ADMIN_USERNAME`
+- `DEFAULT_ADMIN_PASSWORD`
+- `DEFAULT_ADMIN_EMAIL`
+- `DEFAULT_ADMIN_VERBOSE_NAME`
 
-  /helpdesk/desk/views.py:
-    21 line: email_host_user - to your email host user
+Local setup:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python Helpdesk\manage.py migrate
+python Helpdesk\manage.py runserver
+```
+
+The first local admin user is created automatically on a new database.

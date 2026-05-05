@@ -12,6 +12,56 @@
             .error {
                 color: red;
             }
+
+            .user-search-wrap {
+                position: relative;
+            }
+
+            .user-search-results {
+                position: absolute;
+                top: calc(100% + 0.25rem);
+                left: 0;
+                right: 0;
+                z-index: 20;
+                display: none;
+                max-height: 260px;
+                overflow-y: auto;
+                padding: 0.35rem;
+                border: 1px solid #dee2e6;
+                border-radius: 0.75rem;
+                background: #fff;
+                box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+            }
+
+            .user-search-results.is-open {
+                display: block;
+            }
+
+            .user-search-option {
+                width: 100%;
+                border: 0;
+                background: transparent;
+                text-align: left;
+                padding: 0.65rem 0.75rem;
+                border-radius: 0.6rem;
+            }
+
+            .user-search-option:hover,
+            .user-search-option.is-active,
+            .user-search-option:focus {
+                background: #f1f3f5;
+                outline: none;
+            }
+
+            .user-search-name {
+                font-weight: 600;
+                color: #212529;
+            }
+
+            .user-search-meta {
+                font-size: 0.85rem;
+                color: #6c757d;
+            }
         </style>
     </head>
     <header>
@@ -21,23 +71,158 @@
     </header>
     <body>
         <div class="container d-flex justify-content-center align-items-center my-5">
-            <form method='post' class="text-center">
+            <form method="post" class="text-center" novalidate>
                 {% csrf_token %}
-                <h2>Вход</h2> 
+                <h2>Вход</h2>
                 {% if error_message %}
                     <p class="error">{{ error_message }}</p>
                 {% endif %}
-                <div class="form-group">
-                    <label for="{{ form.username.id_for_label }}">Имя пользователя:</label>
-                    {{ form.username|add_class:"form-control" }}
+                {{ form.user_profile }}
+                <div class="form-group text-start">
+                    <label for="{{ form.username_display.id_for_label }}">Пользователь:</label>
+                    <div class="user-search-wrap">
+                        {{ form.username_display }}
+                        <div id="user-search-results" class="user-search-results"></div>
+                    </div>
+                    {% if form.username_display.errors %}
+                        <div class="error mt-1">{{ form.username_display.errors|join:", " }}</div>
+                    {% endif %}
                 </div>
-                <div class="form-group">
+                <div class="form-group text-start">
                     <label for="{{ form.password.id_for_label }}">Пароль:</label>
-                    {{ form.password|add_class:"form-control" }}
+                    {{ form.password }}
+                    {% if form.password.errors %}
+                        <div class="error mt-1">{{ form.password.errors|join:", " }}</div>
+                    {% endif %}
                 </div>
                 <br>
-                <button type='submit' class="btn btn-primary mb-3">Вход</button>
+                <button type="submit" class="btn btn-primary mb-3">Вход</button>
             </form>
         </div>
+
+        <script>
+            const usersData = [
+                {% for profile in form.user_profiles %}
+                {
+                    id: "{{ profile.pk|escapejs }}",
+                    name: "{{ profile.verbose_name|escapejs }}",
+                    username: "{{ profile.user.username|escapejs }}",
+                },
+                {% endfor %}
+            ];
+
+            const userInput = document.getElementById("id_username_display");
+            const userProfileInput = document.getElementById("id_user_profile");
+            const results = document.getElementById("user-search-results");
+            let activeIndex = -1;
+
+            function getOptions() {
+                return Array.from(results.querySelectorAll(".user-search-option"));
+            }
+
+            function setActiveOption(index) {
+                const options = getOptions();
+                activeIndex = index;
+
+                options.forEach((option, optionIndex) => {
+                    option.classList.toggle("is-active", optionIndex === activeIndex);
+                });
+
+                if (activeIndex >= 0 && options[activeIndex]) {
+                    options[activeIndex].scrollIntoView({ block: "nearest" });
+                }
+            }
+
+            function closeResults() {
+                results.classList.remove("is-open");
+                results.innerHTML = "";
+                activeIndex = -1;
+            }
+
+            function selectUser(user) {
+                userInput.value = user.name;
+                userProfileInput.value = user.id;
+                closeResults();
+            }
+
+            function renderResults(query) {
+                const normalizedQuery = query.trim().toLowerCase();
+                const filteredUsers = usersData
+                    .filter((user) => {
+                        if (!normalizedQuery) {
+                            return true;
+                        }
+
+                        return (
+                            user.name.toLowerCase().includes(normalizedQuery) ||
+                            user.username.toLowerCase().includes(normalizedQuery)
+                        );
+                    })
+                    .slice(0, 8);
+
+                if (filteredUsers.length === 0) {
+                    closeResults();
+                    return;
+                }
+
+                results.innerHTML = "";
+                filteredUsers.forEach((user) => {
+                    const option = document.createElement("button");
+                    option.type = "button";
+                    option.className = "user-search-option";
+                    option.dataset.userIndex = user.id;
+                    option.innerHTML = `
+                        <div class="user-search-name">${user.name}</div>
+                        <div class="user-search-meta">${user.username}</div>
+                    `;
+                    option.addEventListener("click", () => selectUser(user));
+                    results.appendChild(option);
+                });
+
+                results.classList.add("is-open");
+                setActiveOption(filteredUsers.length > 0 ? 0 : -1);
+            }
+
+            userInput.addEventListener("input", () => {
+                userProfileInput.value = "";
+                renderResults(userInput.value);
+            });
+
+            userInput.addEventListener("focus", () => {
+                renderResults(userInput.value);
+            });
+
+            userInput.addEventListener("keydown", (event) => {
+                const options = getOptions();
+                if (!results.classList.contains("is-open") || options.length === 0) {
+                    return;
+                }
+
+                if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    const nextIndex = activeIndex < options.length - 1 ? activeIndex + 1 : 0;
+                    setActiveOption(nextIndex);
+                    return;
+                }
+
+                if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const previousIndex = activeIndex > 0 ? activeIndex - 1 : options.length - 1;
+                    setActiveOption(previousIndex);
+                    return;
+                }
+
+                if (event.key === "Enter" && activeIndex >= 0) {
+                    event.preventDefault();
+                    options[activeIndex].click();
+                }
+            });
+
+            document.addEventListener("click", (event) => {
+                if (!results.contains(event.target) && event.target !== userInput) {
+                    closeResults();
+                }
+            });
+        </script>
     </body>
 </html>

@@ -1,19 +1,19 @@
-FROM python:3.9
+FROM python:3.13-slim
 
-RUN apt-get update && \
-    apt-get install -y postgresql && \
-    apt-get clean
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-RUN mkdir /app
 WORKDIR /app
 
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./requirements.txt
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-COPY . /app/
+COPY . .
 
-RUN python helpdesk/manage.py migrate
+WORKDIR /app/Helpdesk
+
+RUN python manage.py migrate
 
 EXPOSE 1234
 
-CMD ["python", "helpdesk/manage.py", "runserver", "0.0.0.0:1234"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:1234"]

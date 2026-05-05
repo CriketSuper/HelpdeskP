@@ -9,13 +9,60 @@
         <title>{% block title %}Главная{% endblock %} :: Заявки</title>
         <link rel="stylesheet" href="{% static './css/bootstrap.css' %}">
         <script src="{% static './js/bootstrap.bundle.js' %}"></script>
+        <style>
+            .header-menu-btn {
+                width: 3.35rem;
+                height: 3.35rem;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid #ced4da;
+                border-radius: 0.9rem;
+                background: #fff;
+            }
+
+            .header-menu-icon {
+                display: inline-flex;
+                flex-direction: column;
+                gap: 0.28rem;
+            }
+
+            .header-menu-icon span {
+                width: 1.25rem;
+                height: 2px;
+                background: #212529;
+                border-radius: 999px;
+            }
+
+            .profile-menu-meta {
+                margin-top: 0.35rem;
+                color: #6c757d;
+                font-size: 0.92rem;
+            }
+
+            .profile-menu-actions {
+                display: grid;
+                gap: 0.75rem;
+                align-content: start;
+            }
+        </style>
     </head>
     <header>
         <nav class="navbar navbar-expand-lg bg-body-tertiary">
             <div class="container-fluid">
-                <a class="navbar-brand" href="{% url 'index' %}"><img src="{% static './images/logo.png' %}" width="80" height="80"></a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavAltMarkup" aria-controls="navbarNavAltMarkup" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
+                <a class="navbar-brand" href="{% url 'index' %}">
+                    <img src="{% static './images/logo.png' %}" width="80" height="80">
+                </a>
+                <button
+                    class="navbar-toggler"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#navbarNavAltMarkup"
+                    aria-controls="navbarNavAltMarkup"
+                    aria-expanded="false"
+                    aria-label="Toggle navigation"
+                >
+                    <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="collapse navbar-collapse" id="navbarNavAltMarkup">
                     <div class="navbar-nav">
@@ -25,18 +72,65 @@
                 </div>
                 {% block filter %}
                 {% endblock %}
-                <button class="btn {% if request.user.is_authenticated %}btn-danger{% else %}btn-primary{% endif %} ms-2 d-inline-block btn-lg">
-                    <a class="nav-link active text-white" href="{% if request.user.is_authenticated %}{% url 'logout' %}{% else %}{% url 'login' %}{% endif %}">
-                      {% if request.user.is_authenticated %}Выход{% else %}Вход{% endif %}
-                    </a>
+                {% if request.user.is_authenticated %}
+                <button
+                    class="header-menu-btn ms-2"
+                    type="button"
+                    data-bs-toggle="offcanvas"
+                    data-bs-target="#profileMenu"
+                    aria-controls="profileMenu"
+                    aria-label="Открыть меню профиля"
+                >
+                    <span class="header-menu-icon" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
                 </button>
+                {% else %}
+                <a class="btn btn-primary ms-2 d-inline-block btn-lg" href="{% url 'login' %}">Вход</a>
+                {% endif %}
             </div>
         </nav>
     </header>
     <body>
+        {% if messages %}
+        <div class="container pt-3">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрыть"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         <section>
             {% block content %}
             {% endblock %}
         </section>
+
+        {% if request.user.is_authenticated %}
+        <div class="offcanvas offcanvas-end" tabindex="-1" id="profileMenu" aria-labelledby="profileMenuLabel">
+            <div class="offcanvas-header">
+                <div>
+                    <h5 class="offcanvas-title" id="profileMenuLabel">
+                        {% if request.user.profile %}{{ request.user.profile }}{% else %}{{ request.user.username }}{% endif %}
+                    </h5>
+                    <div class="profile-menu-meta">
+                        {% if request.user.email %}{{ request.user.email }}{% else %}Почта не указана{% endif %}
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Закрыть"></button>
+            </div>
+            <div class="offcanvas-body profile-menu-actions">
+                <a class="btn btn-outline-primary w-100" href="{% url 'profiles' %}">Редактировать профиль</a>
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger w-100">Выход</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
     </body>
 </html>

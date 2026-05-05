@@ -2,7 +2,9 @@ from django.apps import AppConfig
 
 
 class DeskConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'desk'
-    verbose_name = 'Учет заявок'
-    
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "desk"
+    verbose_name = "Учет заявок"
+
+    def ready(self):
+        from . import signals  # noqa: F401

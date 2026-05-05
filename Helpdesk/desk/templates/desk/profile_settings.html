@@ -1,0 +1,76 @@
+{% extends "layout/basic.html" %}
+
+{% block title %}Настройки профиля{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h3 class="card-title mb-3">Профиль</h3>
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="{{ profile_settings_form.verbose_name.id_for_label }}" class="form-label">ФИО</label>
+                            {{ profile_settings_form.verbose_name }}
+                            {% if profile_settings_form.verbose_name.errors %}
+                            <div class="text-danger small mt-1">{{ profile_settings_form.verbose_name.errors|join:", " }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-3">
+                            <label for="{{ profile_settings_form.email.id_for_label }}" class="form-label">Почта для уведомлений</label>
+                            {{ profile_settings_form.email }}
+                            {% if profile_settings_form.email.errors %}
+                            <div class="text-danger small mt-1">{{ profile_settings_form.email.errors|join:", " }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="form-check mb-3">
+                            {{ profile_settings_form.receive_email_notifications }}
+                            <label class="form-check-label" for="{{ profile_settings_form.receive_email_notifications.id_for_label }}">
+                                Получать уведомления по почте
+                            </label>
+                        </div>
+                        <button type="submit" name="save-profile" value="true" class="btn btn-primary">Сохранить профиль</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h3 class="card-title mb-3">Смена пароля</h3>
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="{{ password_update_form.old_password.id_for_label }}" class="form-label">Текущий пароль</label>
+                            {{ password_update_form.old_password }}
+                            {% if password_update_form.old_password.errors %}
+                            <div class="text-danger small mt-1">{{ password_update_form.old_password.errors|join:", " }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-3">
+                            <label for="{{ password_update_form.new_password1.id_for_label }}" class="form-label">Новый пароль</label>
+                            {{ password_update_form.new_password1 }}
+                            {% if password_update_form.new_password1.errors %}
+                            <div class="text-danger small mt-1">{{ password_update_form.new_password1.errors|join:", " }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-3">
+                            <label for="{{ password_update_form.new_password2.id_for_label }}" class="form-label">Подтвердите новый пароль</label>
+                            {{ password_update_form.new_password2 }}
+                            {% if password_update_form.new_password2.errors %}
+                            <div class="text-danger small mt-1">{{ password_update_form.new_password2.errors|join:", " }}</div>
+                            {% endif %}
+                            {% if password_update_form.non_field_errors %}
+                            <div class="text-danger small mt-1">{{ password_update_form.non_field_errors|join:", " }}</div>
+                            {% endif %}
+                        </div>
+                        <button type="submit" name="change-password" value="true" class="btn btn-outline-dark">Сменить пароль</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

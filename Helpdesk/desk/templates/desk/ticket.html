@@ -1,15 +1,151 @@
-{% extends 'layout/basic.html' %}
+{% extends "layout/basic.html" %}
+{% load static %}
 {% load custom_filters %}
 
 {% block content %}
+<style>
+    .document-list {
+        display: grid;
+        gap: 0.75rem;
+    }
+
+    .document-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.9rem;
+        background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+        box-shadow: 0 8px 18px rgba(33, 37, 41, 0.06);
+    }
+
+    .document-meta {
+        min-width: 0;
+    }
+
+    .document-icon {
+        width: 2.5rem;
+        height: 2.5rem;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+
+    .document-main {
+        display: flex;
+        align-items: center;
+        gap: 0.9rem;
+        min-width: 0;
+    }
+
+    .document-name {
+        margin: 0;
+        font-weight: 600;
+        color: #212529;
+        word-break: break-word;
+    }
+
+    .document-caption {
+        margin: 0.2rem 0 0;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .chat-document {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        border-radius: 0.75rem;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+    }
+
+    .file-picker-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .file-picker-status {
+        color: #6c757d;
+        font-size: 0.95rem;
+    }
+
+    .movement-wrapper {
+        padding: 1rem 0.5rem;
+        overflow-x: auto;
+    }
+
+    .movement-flow {
+        display: flex;
+        align-items: stretch;
+        gap: 1rem;
+        min-width: max-content;
+        padding: 0.5rem;
+    }
+
+    .movement-card {
+        width: 230px;
+        min-height: 124px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 1rem 1.1rem;
+        border: 2px solid #1f1f1f;
+        border-radius: 1rem;
+        background: #ffffff;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+        cursor: pointer;
+        text-align: center;
+    }
+
+    .movement-title {
+        margin: 0;
+        font-size: 1.65rem;
+        line-height: 1.1;
+        font-weight: 500;
+    }
+
+    .movement-subtitle {
+        margin: 0;
+        font-size: 1rem;
+        color: #495057;
+        word-break: break-word;
+    }
+
+    .movement-time {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .movement-arrow {
+        align-self: center;
+        font-size: 2.8rem;
+        color: #111;
+        line-height: 1;
+        user-select: none;
+    }
+
+    .tooltip-inner {
+        max-width: 280px;
+        white-space: pre-line;
+        text-align: left;
+    }
+</style>
+
 <h2 align="center">Заявка №{{ current_ticket.id }}</h2>
-<div class='container text-center overflow-hidden'>
+<div class="container text-center overflow-hidden">
     <ul class="nav nav-tabs justify-content-center nav-fill" id="myTab" role="tablist">
         <li class="nav-item" role="presentation">
-            <button button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info-tab-pane" type="button" role="tab" aria-controls="info-tab-pane" aria-selected="true"><h4>Информация</h4></button>
+            <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info-tab-pane" type="button" role="tab" aria-controls="info-tab-pane" aria-selected="true"><h4>Информация</h4></button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="chat-tab" data-bs-toggle="tab" data-bs-target="#chat-tab-pane" type="button" role="tab" aria-controls="chat-tab-pane" aria-selected="false"><h4>Чат</h4></button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="movement-tab" data-bs-toggle="tab" data-bs-target="#movement-tab-pane" type="button" role="tab" aria-controls="movement-tab-pane" aria-selected="false"><h4>Движение</h4></button>
         </li>
     </ul>
     <div class="tab-content" id="myTabContent">
@@ -20,22 +156,43 @@
                     <h5 class="fw-bold mb-3">Содержание:</h5>
                     <p class="fw-light">{{ current_ticket.content }}</p>
                     <p><br></p><p><br></p>
-                    <h5 class="fw-bold mb-3">Документы:</h5>
-                    <div class="text-start">
-                      {% if current_ticket.related_documents.all|length != 0 %}
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="fw-bold mb-0">Документы:</h5>
+                        <span class="badge text-bg-light">{{ current_ticket.related_documents.count }}</span>
+                    </div>
+                    <div class="text-start document-list">
                         {% for document in current_ticket.related_documents.all %}
-                          {% with document.file.name as file_name %}
-                            <p class="fw-light mb-2"><a href="{{ document.file.url }}">{{ file_name|custom_basename }}</a></p>
-                          {% endwith %}
+                            {% with document.file.name as file_name %}
+                            <div class="document-card">
+                                <div class="document-main">
+                                    <img class="document-icon" src="{% static file_name|document_icon %}" alt="">
+                                    <div class="document-meta">
+                                        <p class="document-name">{{ file_name|custom_basename }}</p>
+                                        <p class="document-caption">Файл прикреплен к заявке</p>
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ document.file.url }}">Открыть</a>
+                                    {% if can_manage_documents %}
+                                    <form method="post" action="{% url 'send_message' current_ticket.pk %}" onsubmit="return confirm('Удалить документ из заявки?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="document_id" value="{{ document.id }}">
+                                        <button type="submit" class="btn-close" name="delete-document" value="true" aria-label="Удалить"></button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endwith %}
+                        {% empty %}
+                            <div class="alert alert-light border mb-0">Документы пока не прикреплены.</div>
                         {% endfor %}
-                      {% endif %}
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <h5 class="fw-bold">Автор:</h5>
-                            <p class="fw-light">{% if current_ticket.created_by.profile %}{{ current_ticket.created_by.profile }}{% else %}{{current_ticket.created_by}}{% endif %}</p>
+                            <p class="fw-light">{% if current_ticket.created_by.profile %}{{ current_ticket.created_by.profile }}{% else %}{{ current_ticket.created_by }}{% endif %}</p>
                         </div>
                         <div class="col-md-6">
                             <h5 class="fw-bold">Критичность:</h5>
@@ -43,12 +200,14 @@
                         </div>
                     </div>
                     <p><br></p>
-                    <div class="row mb-3">
-                        {% if request.user.is_superuser %}
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Исполнитель:</h5>
-                            <form id="technician-form" method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
-                                {% csrf_token %}
+
+                    {% if can_assign_technician or can_edit_progress %}
+                    <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+                        {% csrf_token %}
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <h5 class="fw-bold">Исполнитель:</h5>
+                                {% if can_assign_technician %}
                                 <select class="form-select" name="technician">
                                     {% for user in users %}
                                         {% if current_ticket.technician and user.id == current_ticket.technician.id %}
@@ -58,43 +217,46 @@
                                         {% endif %}
                                     {% endfor %}
                                 </select>
-                                <button type="submit" class="btn btn-primary mt-2">Сохранить</button>
-                                <input type="hidden" name="assign-technician" value="true">
-                            </form>
-                        </div>
-                        {% else %}
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Исполнитель:</h5>
-                            <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{current_ticket.technician}}{% endif %}</p>
-                        </div>
-                        {% endif %} 
-                        {% if has_view_all_tickets_permission %} 
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Статус заявки:</h5>
-                            <form id="progress-form" method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
-                                {% csrf_token %}
+                                {% else %}
+                                <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{ current_ticket.technician }}{% endif %}</p>
+                                {% endif %}
+                            </div>
+
+                            <div class="col-md-6">
+                                <h5 class="fw-bold">Статус заявки:</h5>
+                                {% if can_edit_progress %}
                                 <select class="form-select" name="progress">
                                     {% for choice in current_ticket.Progres.choices %}
                                         <option value="{{ choice.0 }}" {% if choice.0 == current_ticket.progress %}selected{% endif %}>{{ choice.1 }}</option>
                                     {% endfor %}
                                 </select>
-                                <button type="submit" class="btn btn-primary mt-2">Сохранить</button>
-                            </form>
+                                {% else %}
+                                <p class="fw-light">{{ current_ticket.progress }}</p>
+                                {% endif %}
+                            </div>
                         </div>
-                        {% else %}
+                        <button type="submit" class="btn btn-primary mt-2" name="save-ticket" value="true">Сохранить</button>
+                    </form>
+                    {% else %}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h5 class="fw-bold">Исполнитель:</h5>
+                            <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{ current_ticket.technician }}{% endif %}</p>
+                        </div>
                         <div class="col-md-6">
                             <h5 class="fw-bold">Статус заявки:</h5>
                             <p class="fw-light">{{ current_ticket.progress }}</p>
                         </div>
-                        {% endif %}
                     </div>
+                    {% endif %}
+
                     <p><br></p>
                     <div class="row">
                         <div class="col-md-6">
                             <h5 class="fw-bold">Дата изменения:</h5>
                             <p class="fw-light">{{ current_ticket.published }}</p>
                         </div>
-                        {% if request.user.is_superuser %}
+                        {% if can_change_ticket_status %}
                             {% if current_ticket.status == "закрыта" %}
                             <div class="col-md-6">
                                 <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
@@ -119,7 +281,7 @@
                             </div>
                             {% endif %}
                         {% endif %}
-                    </div>                                                         
+                    </div>
                 </div>
             </div>
         </div>
@@ -130,35 +292,108 @@
                         <div class="font-weight-bold">{{ message.author }}</div>
                         <div class="text-muted">{{ message.datetime }}</div>
                     </div>
-                    <div class="card-body" align="left">{{ message.message }}</div>
+                    <div class="card-body text-start">
+                        <div>{{ message.message }}</div>
+                        {% if message.document_name %}
+                        <div class="chat-document">
+                            <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                                <div class="document-main">
+                                    <img class="document-icon" src="{% static message.document_name|document_icon %}" alt="">
+                                    <div>
+                                        <div class="fw-semibold">{{ message.document_name }}</div>
+                                        {% if message.document_deleted %}
+                                        <span class="badge text-bg-secondary mt-2">Документ удален</span>
+                                        {% else %}
+                                        <span class="badge text-bg-light mt-2">Новый файл</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% if not message.document_deleted and message.document_url %}
+                                <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}">Открыть документ</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             {% endfor %}
-            <form method="post" action="{% url 'send_message' current_ticket.pk %}">
+            <form method="post" action="{% url 'send_message' current_ticket.pk %}" enctype="multipart/form-data">
                 {% csrf_token %}
-                <div class="form-group">
+                <div class="form-group mb-3">
                     <label for="message_text">Сообщение</label>
                     <textarea class="form-control" id="message_text" name="message_text" rows="3"></textarea>
                 </div>
+                <div class="form-group mb-3 text-start">
+                    <label for="chat_documents" class="form-label">Документы</label>
+                    <div class="file-picker-row">
+                        <label for="chat_documents" class="btn btn-outline-primary mb-0">Выберите документы</label>
+                        <span id="chat-documents-status" class="file-picker-status">Файлы не выбраны</span>
+                    </div>
+                    <input class="d-none" id="chat_documents" name="chat_documents" type="file" multiple>
+                </div>
                 <button type="submit" class="btn btn-primary">Отправить</button>
-            </form>        
+            </form>
+        </div>
+        <div class="tab-pane fade border" id="movement-tab-pane" role="tabpanel" aria-labelledby="movement-tab" tabindex="0">
+            <div class="movement-wrapper">
+                <div class="movement-flow">
+                    {% for event in movement_events %}
+                        <div
+                            class="movement-card"
+                            data-bs-toggle="tooltip"
+                            data-bs-placement="top"
+                            data-bs-title="{{ event.tooltip }}"
+                        >
+                            <p class="movement-title">{{ event.title }}</p>
+                            {% if event.subtitle %}
+                            <p class="movement-subtitle">{{ event.subtitle }}</p>
+                            {% endif %}
+                            {% if event.time %}
+                            <div class="movement-time">{{ event.time }}</div>
+                            {% endif %}
+                        </div>
+                        {% if not forloop.last %}
+                        <div class="movement-arrow">→</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
         </div>
     </div>
 </div>
 <script>
     const checkbox = document.getElementById("check");
     const button = document.getElementById("check-btn");
+    const chatDocumentsInput = document.getElementById("chat_documents");
+    const chatDocumentsStatus = document.getElementById("chat-documents-status");
+    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
 
-    checkbox.addEventListener("change", function() {
-      if (this.checked) {
-        button.classList.add("active");
-        button.disabled = false;
-      } else {
-        button.classList.remove("active");
-        button.disabled = true;
-      }
-    });
+    if (checkbox && button) {
+        checkbox.addEventListener("change", function() {
+            if (this.checked) {
+                button.classList.add("active");
+                button.disabled = false;
+            } else {
+                button.classList.remove("active");
+                button.disabled = true;
+            }
+        });
+    }
 
-    button.addEventListener("click", function() {
+    if (chatDocumentsInput && chatDocumentsStatus) {
+        chatDocumentsInput.addEventListener("change", function() {
+            if (!this.files || this.files.length === 0) {
+                chatDocumentsStatus.textContent = "Файлы не выбраны";
+                return;
+            }
+
+            const names = Array.from(this.files).map(file => file.name);
+            chatDocumentsStatus.textContent = names.join(", ");
+        });
+    }
+
+    tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+        new bootstrap.Tooltip(tooltipTriggerEl);
     });
 </script>
 {% endblock %}
