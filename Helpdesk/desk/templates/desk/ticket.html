@@ -168,11 +168,11 @@
                                     <img class="document-icon" src="{% static file_name|document_icon %}" alt="">
                                     <div class="document-meta">
                                         <p class="document-name">{{ file_name|custom_basename }}</p>
-                                        <p class="document-caption">Файл прикреплен к заявке</p>
+                                        <p class="document-caption">Доступно участникам заявки</p>
                                     </div>
                                 </div>
                                 <div class="d-flex align-items-center gap-2">
-                                    <a class="btn btn-sm btn-outline-primary" href="{{ document.file.url }}">Открыть</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.id %}">Открыть</a>
                                     {% if can_manage_documents %}
                                     <form method="post" action="{% url 'send_message' current_ticket.pk %}" onsubmit="return confirm('Удалить документ из заявки?');">
                                         {% csrf_token %}
@@ -261,10 +261,9 @@
                             <div class="col-md-6">
                                 <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
                                     {% csrf_token %}
-                                    <div class="form-check ms-5" style="display: flex; align-items: center;">
-                                        <input class="form-check-input" type="checkbox" id="check" name="check" data-toggle="button" data-target="#check-btn" style="margin-right: 10px;">
-                                        <label class="form-check-label" for="check" style="margin-right: 10px;"></label>
-                                        <button type="submit" class="btn btn-success" id="check-btn" name="open-ticket" disabled>Открыть заявку</button>
+                                    <div class="form-check ms-5 d-flex align-items-center gap-2">
+                                        <input class="form-check-input ticket-status-check" type="checkbox" id="open-check-{{ current_ticket.id }}">
+                                        <button type="submit" class="btn btn-success ticket-status-btn" name="open-ticket" disabled>Открыть заявку</button>
                                     </div>
                                 </form>
                             </div>
@@ -272,10 +271,9 @@
                             <div class="col-md-6">
                                 <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
                                     {% csrf_token %}
-                                    <div class="form-check ms-5" style="display: flex; align-items: center;">
-                                        <input class="form-check-input" type="checkbox" id="check" name="check" data-toggle="button" data-target="#check-btn" style="margin-right: 10px;">
-                                        <label class="form-check-label" for="check" style="margin-right: 10px;"></label>
-                                        <button type="submit" class="btn btn-outline-danger" id="check-btn" name="close-ticket" disabled>Закрыть заявку</button>
+                                    <div class="form-check ms-5 d-flex align-items-center gap-2">
+                                        <input class="form-check-input ticket-status-check" type="checkbox" id="close-check-{{ current_ticket.id }}">
+                                        <button type="submit" class="btn btn-outline-danger ticket-status-btn" name="close-ticket" disabled>Закрыть заявку</button>
                                     </div>
                                 </form>
                             </div>
@@ -308,14 +306,20 @@
                                         {% endif %}
                                     </div>
                                 </div>
-                                {% if not message.document_deleted and message.document_url %}
-                                <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}">Открыть документ</a>
+                                {% if not message.document_deleted %}
+                                    {% if message.document_id %}
+                                    <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' message.document_id %}">Открыть документ</a>
+                                    {% elif message.document_url %}
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}">Открыть документ</a>
+                                    {% endif %}
                                 {% endif %}
                             </div>
                         </div>
                         {% endif %}
                     </div>
                 </div>
+            {% empty %}
+                <div class="alert alert-light border">Сообщений пока нет.</div>
             {% endfor %}
             <form method="post" action="{% url 'send_message' current_ticket.pk %}" enctype="multipart/form-data">
                 {% csrf_token %}
@@ -329,6 +333,7 @@
                         <label for="chat_documents" class="btn btn-outline-primary mb-0">Выберите документы</label>
                         <span id="chat-documents-status" class="file-picker-status">Файлы не выбраны</span>
                     </div>
+                    <div class="form-text">Максимальный размер одного файла: {{ max_upload_size_mb }} МБ.</div>
                     <input class="d-none" id="chat_documents" name="chat_documents" type="file" multiple>
                 </div>
                 <button type="submit" class="btn btn-primary">Отправить</button>
@@ -362,27 +367,32 @@
     </div>
 </div>
 <script>
-    const checkbox = document.getElementById("check");
-    const button = document.getElementById("check-btn");
     const chatDocumentsInput = document.getElementById("chat_documents");
     const chatDocumentsStatus = document.getElementById("chat-documents-status");
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+    const statusChecks = document.querySelectorAll(".ticket-status-check");
+    const maxFileSizeBytes = {{ max_upload_size_mb }} * 1024 * 1024;
 
-    if (checkbox && button) {
+    statusChecks.forEach((checkbox) => {
+        const button = checkbox.closest("form").querySelector(".ticket-status-btn");
         checkbox.addEventListener("change", function() {
-            if (this.checked) {
-                button.classList.add("active");
-                button.disabled = false;
-            } else {
-                button.classList.remove("active");
-                button.disabled = true;
+            if (button) {
+                button.disabled = !this.checked;
             }
         });
-    }
+    });
 
     if (chatDocumentsInput && chatDocumentsStatus) {
         chatDocumentsInput.addEventListener("change", function() {
             if (!this.files || this.files.length === 0) {
+                chatDocumentsStatus.textContent = "Файлы не выбраны";
+                return;
+            }
+
+            const oversized = Array.from(this.files).find(file => file.size > maxFileSizeBytes);
+            if (oversized) {
+                alert(`Файл "${oversized.name}" превышает допустимый размер {{ max_upload_size_mb }} МБ.`);
+                this.value = "";
                 chatDocumentsStatus.textContent = "Файлы не выбраны";
                 return;
             }

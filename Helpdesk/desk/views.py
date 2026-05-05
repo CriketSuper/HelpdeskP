@@ -1,4 +1,5 @@
 import logging
+import os
 
 from django.conf import settings
 from django.contrib import messages
@@ -9,17 +10,18 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LogoutView
 from django.core.mail import send_mail
 from django.db.models import Q
-from django.http import Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
-from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.generic.edit import CreateView
 
 from .forms import LoginForm, PasswordUpdateForm, ProfileSettingsForm, TicketForm
 from .models import (
     Document,
+    Notification,
     Ticket,
     UserProfile,
     admin_group_name,
@@ -97,6 +99,30 @@ def _get_notification_recipients(*users):
     return recipients
 
 
+def _unique_users(*users, exclude_user=None):
+    result = []
+    seen = set()
+
+    for user in users:
+        if user is None:
+            continue
+        if exclude_user is not None and user.pk == exclude_user.pk:
+            continue
+        if user.pk in seen:
+            continue
+
+        seen.add(user.pk)
+        result.append(user)
+
+    return result
+
+
+def _add_ticket_participants(ticket, *users):
+    valid_users = _unique_users(*users)
+    if ticket.pk and valid_users:
+        ticket.participants.add(*valid_users)
+
+
 def _notify(subject, message, recipients):
     if not recipients or not _notifications_are_enabled():
         return False
@@ -120,6 +146,69 @@ def _notify(subject, message, recipients):
 def _notify_users(subject, message, *users):
     recipients = _get_notification_recipients(*users)
     return _notify(subject, message, recipients)
+
+
+def _create_in_app_notifications(
+    title,
+    body,
+    *users,
+    ticket=None,
+    exclude_user=None,
+    level=Notification.Levels.INFO,
+):
+    recipients = _unique_users(*users, exclude_user=exclude_user)
+    if not recipients:
+        return
+
+    link = ""
+    if ticket is not None:
+        link = reverse("ticket", kwargs={"ticket_id": ticket.pk})
+
+    Notification.objects.bulk_create(
+        [
+            Notification(
+                user=user,
+                title=title,
+                body=body,
+                level=level,
+                link=link,
+            )
+            for user in recipients
+        ]
+    )
+
+
+def _notify_ticket_users(
+    title,
+    body,
+    *users,
+    ticket=None,
+    exclude_user=None,
+    level=Notification.Levels.INFO,
+):
+    recipients = _unique_users(*users, exclude_user=exclude_user)
+    _create_in_app_notifications(
+        title,
+        body,
+        *recipients,
+        ticket=ticket,
+        level=level,
+    )
+    _notify_users(title, body, *recipients)
+
+
+def _validate_uploaded_documents(uploaded_documents):
+    max_size = getattr(settings, "MAX_UPLOAD_SIZE_BYTES", 200 * 1024 * 1024)
+    max_size_mb = getattr(settings, "MAX_UPLOAD_SIZE_MB", 200)
+
+    for uploaded_document in uploaded_documents:
+        if uploaded_document.size > max_size:
+            return (
+                f'Файл "{uploaded_document.name}" превышает допустимый размер '
+                f"({max_size_mb} МБ)."
+            )
+
+    return None
 
 
 def _get_safe_redirect_target(request):
@@ -146,7 +235,12 @@ def _is_executor(user):
 
 
 def _can_view_ticket(user, ticket):
-    return _is_admin(user) or ticket.created_by == user or ticket.technician == user
+    return (
+        _is_admin(user)
+        or ticket.created_by == user
+        or ticket.technician == user
+        or ticket.participants.filter(pk=user.pk).exists()
+    )
 
 
 def _can_manage_ticket_workflow(user, ticket):
@@ -178,7 +272,7 @@ def _append_system_message(ticket, message, event_type=None, event_meta=None):
 
 def _append_document_message(ticket, user, document):
     chat = list(ticket.chat or [])
-    document_name = document.file.name.split("/")[-1]
+    document_name = os.path.basename(document.file.name)
     chat.append(
         {
             "author": _get_user_display_name(user),
@@ -186,7 +280,6 @@ def _append_document_message(ticket, user, document):
             "datetime": _current_timestamp(),
             "document_id": document.pk,
             "document_name": document_name,
-            "document_url": document.file.url,
             "document_deleted": False,
         }
     )
@@ -302,11 +395,22 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
     form_class = TicketForm
     success_url = reverse_lazy("index")
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["max_upload_size_mb"] = getattr(settings, "MAX_UPLOAD_SIZE_MB", 200)
+        return context
+
     def form_valid(self, form):
+        documents = self.request.FILES.getlist("documents")
+        validation_error = _validate_uploaded_documents(documents)
+        if validation_error:
+            form.add_error(None, validation_error)
+            messages.error(self.request, validation_error)
+            return self.form_invalid(form)
+
         form.instance.created_by = self.request.user
         response = super().form_valid(form)
 
-        documents = self.request.FILES.getlist("documents")
         document_names = self.request.POST.getlist("document_names")
         for document, name in zip(documents, document_names):
             if document:
@@ -315,12 +419,15 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
                 doc.save()
 
         assigned_technician = form.instance.technician or get_default_technician_user()
-        _notify_users(
-            "Поступила новая заявка по административно-хозяйственной службе",
-            'Поступила заявка с темой "{}"'.format(form.cleaned_data["title"]),
+        _add_ticket_participants(form.instance, self.request.user, assigned_technician)
+        _notify_ticket_users(
+            "Вам назначена новая заявка",
+            f'Поступила заявка с темой "{form.cleaned_data["title"]}".',
             assigned_technician,
+            ticket=form.instance,
+            exclude_user=self.request.user,
+            level=Notification.Levels.SUCCESS,
         )
-
         return response
 
 
@@ -398,7 +505,9 @@ def index(request):
         tickets = Ticket.objects.all()
     elif _is_executor(request.user):
         tickets = Ticket.objects.filter(
-            Q(created_by=request.user) | Q(technician=request.user)
+            Q(created_by=request.user)
+            | Q(technician=request.user)
+            | Q(participants=request.user)
         ).distinct()
     else:
         tickets = Ticket.objects.filter(created_by=request.user)
@@ -466,6 +575,7 @@ def index(request):
             "progress": progress,
             "published_start": published_start,
             "published_end": published_end,
+            "max_upload_size_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 200),
         },
     )
 
@@ -487,8 +597,52 @@ def ticket(request, **kwargs):
         "can_manage_documents": _can_manage_ticket_documents(request.user, current_ticket),
         "movement_events": _build_movement_events(current_ticket),
         "users": users,
+        "max_upload_size_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 200),
     }
     return render(request, "desk/ticket.html", context)
+
+
+@login_required
+def download_document(request, document_id):
+    document = get_object_or_404(Document.objects.select_related("ticket"), pk=document_id)
+    if not _can_view_ticket(request.user, document.ticket):
+        raise Http404("Страница не найдена")
+
+    if not document.file:
+        raise Http404("Файл не найден")
+
+    try:
+        file_handle = document.file.open("rb")
+    except FileNotFoundError as exc:
+        raise Http404("Файл не найден") from exc
+
+    filename = os.path.basename(document.file.name)
+    return FileResponse(file_handle, as_attachment=True, filename=filename)
+
+
+@login_required
+def notifications_feed(request):
+    unread_notifications = list(
+        Notification.objects.filter(user=request.user, is_read=False).order_by("created_at")[:20]
+    )
+    payload = [
+        {
+            "id": notification.pk,
+            "title": notification.title,
+            "body": notification.body,
+            "level": notification.level,
+            "link": notification.link,
+            "created_at": timezone.localtime(notification.created_at).strftime("%d.%m.%Y %H:%M"),
+        }
+        for notification in unread_notifications
+    ]
+
+    if unread_notifications:
+        Notification.objects.filter(pk__in=[item.pk for item in unread_notifications]).update(
+            is_read=True
+        )
+
+    return JsonResponse({"notifications": payload})
 
 
 @login_required
@@ -499,6 +653,13 @@ def send_message(request, ticket_id):
     if not _can_view_ticket(request.user, current_ticket):
         raise Http404("Страница не найдена")
 
+    _add_ticket_participants(
+        current_ticket,
+        request.user,
+        current_ticket.created_by,
+        current_ticket.technician,
+    )
+
     if "delete-document" in request.POST:
         if not _can_manage_ticket_documents(request.user, current_ticket):
             raise Http404("Страница не найдена")
@@ -508,7 +669,7 @@ def send_message(request, ticket_id):
             pk=request.POST.get("document_id"),
             ticket=current_ticket,
         )
-        document_name = document.file.name.split("/")[-1]
+        document_name = os.path.basename(document.file.name)
 
         chat = list(current_ticket.chat or [])
         for entry in chat:
@@ -518,7 +679,7 @@ def send_message(request, ticket_id):
         current_ticket.chat = chat
         _append_system_message(
             current_ticket,
-            f'Документ "{document_name}" откреплен пользователем {_get_user_display_name(request.user)}',
+            f'Документ "{document_name}" откреплён пользователем {_get_user_display_name(request.user)}',
         )
         current_ticket.save()
 
@@ -526,6 +687,7 @@ def send_message(request, ticket_id):
             document.file.delete(save=False)
         document.delete()
 
+        messages.success(request, "Документ удалён из заявки.")
         return redirect("ticket", ticket_id=ticket_id)
 
     if "save-ticket" in request.POST:
@@ -534,6 +696,7 @@ def send_message(request, ticket_id):
 
         changes = []
         actor_name = _get_user_display_name(request.user)
+        previous_technician = current_ticket.technician
 
         technician_id = request.POST.get("technician")
         if technician_id:
@@ -542,18 +705,8 @@ def send_message(request, ticket_id):
                 pk=technician_id,
             )
             if current_ticket.technician_id != technician.id:
-                previous_assignee = _get_user_display_name(current_ticket.technician)
+                previous_assignee = _get_user_display_name(previous_technician)
                 current_ticket.technician = technician
-                _notify_users(
-                    "Вам назначена заявка №{} по административно-хозяйственной службе".format(
-                        current_ticket.id
-                    ),
-                    'Вам назначена заявка №{} с темой "{}"'.format(
-                        current_ticket.id,
-                        current_ticket.title,
-                    ),
-                    technician,
-                )
                 changes.append(
                     (
                         f"Исполнитель заявки изменен на {_get_user_display_name(technician)} пользователем {actor_name}",
@@ -565,17 +718,25 @@ def send_message(request, ticket_id):
                         },
                     )
                 )
+                _add_ticket_participants(
+                    current_ticket,
+                    request.user,
+                    current_ticket.created_by,
+                    previous_technician,
+                    technician,
+                )
+                _notify_ticket_users(
+                    "Вам назначена заявка",
+                    f'Вам назначена заявка №{current_ticket.id} с темой "{current_ticket.title}".',
+                    technician,
+                    ticket=current_ticket,
+                    exclude_user=request.user,
+                    level=Notification.Levels.SUCCESS,
+                )
 
         new_progress = request.POST.get("progress")
         if new_progress in Ticket.Progres.values and current_ticket.progress != new_progress:
             current_ticket.progress = new_progress
-            subject = "Статус заявки №{} изменен".format(current_ticket.id)
-            message = 'Статус заявки №{} с темой "{}" изменен на "{}"'.format(
-                current_ticket.id,
-                current_ticket.title,
-                current_ticket.progress,
-            )
-            _notify_users(subject, message, current_ticket.created_by, current_ticket.technician)
             changes.append(
                 (
                     f'Статус заявки изменен на "{current_ticket.progress}" пользователем {actor_name}',
@@ -587,19 +748,35 @@ def send_message(request, ticket_id):
                 )
             )
 
-        for message, event_type, event_meta in changes:
+        for message_text, event_type, event_meta in changes:
             _append_system_message(
                 current_ticket,
-                message,
+                message_text,
                 event_type=event_type,
                 event_meta=event_meta,
             )
 
         if changes:
             current_ticket.save()
-            if _can_view_ticket(request.user, current_ticket):
-                return redirect("ticket", ticket_id=ticket_id)
-            return redirect("index")
+            _add_ticket_participants(
+                current_ticket,
+                request.user,
+                current_ticket.created_by,
+                previous_technician,
+                current_ticket.technician,
+            )
+            _notify_ticket_users(
+                "Обновление по заявке",
+                f'По заявке №{current_ticket.id} появились изменения.',
+                current_ticket.created_by,
+                current_ticket.technician,
+                *current_ticket.participants.all(),
+                ticket=current_ticket,
+                exclude_user=request.user,
+                level=Notification.Levels.INFO,
+            )
+            messages.success(request, "Изменения по заявке сохранены.")
+            return redirect("ticket", ticket_id=ticket_id)
 
         return redirect("ticket", ticket_id=ticket_id)
 
@@ -608,15 +785,7 @@ def send_message(request, ticket_id):
             raise Http404("Страница не найдена")
 
         current_ticket.status = Ticket.Status.CLOSED
-        subject = "Заявка №{} закрыта".format(current_ticket.id)
-        message = 'Заявка №{} с темой "{}" закрыта.'.format(
-            current_ticket.id,
-            current_ticket.title,
-        )
         actor_name = _get_user_display_name(request.user)
-
-        _notify_users(subject, message, current_ticket.technician, current_ticket.created_by)
-
         _append_system_message(
             current_ticket,
             f"Заявка закрыта пользователем {actor_name}",
@@ -624,6 +793,17 @@ def send_message(request, ticket_id):
             event_meta={"actor": actor_name},
         )
         current_ticket.save()
+        _notify_ticket_users(
+            "Заявка закрыта",
+            f'Заявка №{current_ticket.id} с темой "{current_ticket.title}" закрыта.',
+            current_ticket.created_by,
+            current_ticket.technician,
+            *current_ticket.participants.all(),
+            ticket=current_ticket,
+            exclude_user=request.user,
+            level=Notification.Levels.WARNING,
+        )
+        messages.success(request, "Заявка закрыта.")
         return redirect("index")
 
     if "open-ticket" in request.POST:
@@ -632,22 +812,6 @@ def send_message(request, ticket_id):
 
         current_ticket.status = Ticket.Status.OPENED
         actor_name = _get_user_display_name(request.user)
-        _notify_users(
-            "Заявка №{} открыта повторно".format(current_ticket.id),
-            'Заявка №{} с темой "{}" открыта повторно.'.format(
-                current_ticket.id,
-                current_ticket.title,
-            ),
-            current_ticket.created_by,
-        )
-        _notify_users(
-            "Заявка №{} открыта повторно".format(current_ticket.id),
-            'Заявка №{} с темой "{}" открыта повторно.'.format(
-                current_ticket.id,
-                current_ticket.title,
-            ),
-            current_ticket.technician,
-        )
         _append_system_message(
             current_ticket,
             f"Заявка открыта пользователем {actor_name}",
@@ -655,9 +819,25 @@ def send_message(request, ticket_id):
             event_meta={"actor": actor_name},
         )
         current_ticket.save()
+        _notify_ticket_users(
+            "Заявка открыта повторно",
+            f'Заявка №{current_ticket.id} с темой "{current_ticket.title}" открыта повторно.',
+            current_ticket.created_by,
+            current_ticket.technician,
+            *current_ticket.participants.all(),
+            ticket=current_ticket,
+            exclude_user=request.user,
+            level=Notification.Levels.WARNING,
+        )
+        messages.success(request, "Заявка открыта повторно.")
         return redirect("index")
 
     uploaded_documents = request.FILES.getlist("chat_documents")
+    validation_error = _validate_uploaded_documents(uploaded_documents)
+    if validation_error:
+        messages.error(request, validation_error)
+        return redirect("ticket", ticket_id=ticket_id)
+
     if uploaded_documents:
         for uploaded_document in uploaded_documents:
             document = Document.objects.create(ticket=current_ticket, file=uploaded_document)
@@ -677,4 +857,15 @@ def send_message(request, ticket_id):
 
     if uploaded_documents or message_text:
         current_ticket.save()
+        _notify_ticket_users(
+            "Обновление по заявке",
+            f'По заявке №{current_ticket.id} появилось новое сообщение.',
+            current_ticket.created_by,
+            current_ticket.technician,
+            *current_ticket.participants.all(),
+            ticket=current_ticket,
+            exclude_user=request.user,
+            level=Notification.Levels.INFO,
+        )
+
     return redirect("ticket", ticket_id=ticket_id)

@@ -45,6 +45,31 @@
                 gap: 0.75rem;
                 align-content: start;
             }
+
+            .toast-stack {
+                position: fixed;
+                right: 1rem;
+                bottom: 1rem;
+                z-index: 1085;
+                display: grid;
+                gap: 0.75rem;
+                max-width: min(24rem, calc(100vw - 2rem));
+            }
+
+            .notification-toast {
+                border: 0;
+                border-radius: 1rem;
+                box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+                overflow: hidden;
+            }
+
+            .notification-toast .toast-header {
+                border-bottom: 0;
+            }
+
+            .notification-toast .toast-body {
+                white-space: pre-line;
+            }
         </style>
     </head>
     <header>
@@ -94,16 +119,19 @@
         </nav>
     </header>
     <body>
-        {% if messages %}
-        <div class="container pt-3">
+        <div id="toast-stack" class="toast-stack">
+            {% if messages %}
             {% for message in messages %}
-            <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
-                {{ message }}
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Закрыть"></button>
+            <div class="toast notification-toast text-bg-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="7000">
+                <div class="toast-header">
+                    <strong class="me-auto">Система</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Закрыть"></button>
+                </div>
+                <div class="toast-body">{{ message }}</div>
             </div>
             {% endfor %}
+            {% endif %}
         </div>
-        {% endif %}
 
         <section>
             {% block content %}
@@ -132,5 +160,68 @@
             </div>
         </div>
         {% endif %}
+
+        <script>
+            (function() {
+                const toastStack = document.getElementById("toast-stack");
+
+                function showToast({ title, body, level = "info", link = "" }) {
+                    if (!toastStack) {
+                        return;
+                    }
+
+                    const toast = document.createElement("div");
+                    toast.className = `toast notification-toast text-bg-${level} border-0`;
+                    toast.setAttribute("role", "alert");
+                    toast.setAttribute("aria-live", "assertive");
+                    toast.setAttribute("aria-atomic", "true");
+                    toast.setAttribute("data-bs-delay", "9000");
+
+                    const bodyMarkup = body ? `<div class="toast-body">${body}</div>` : "";
+                    const linkMarkup = link ? `<div class="px-3 pb-3"><a class="btn btn-sm btn-light" href="${link}">Открыть</a></div>` : "";
+
+                    toast.innerHTML = `
+                        <div class="toast-header">
+                            <strong class="me-auto">${title || "Уведомление"}</strong>
+                            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Закрыть"></button>
+                        </div>
+                        ${bodyMarkup}
+                        ${linkMarkup}
+                    `;
+
+                    toastStack.appendChild(toast);
+                    const instance = new bootstrap.Toast(toast);
+                    instance.show();
+                    toast.addEventListener("hidden.bs.toast", () => toast.remove());
+                }
+
+                document.querySelectorAll(".toast").forEach((toastElement) => {
+                    const instance = new bootstrap.Toast(toastElement);
+                    instance.show();
+                    toastElement.addEventListener("hidden.bs.toast", () => toastElement.remove());
+                });
+
+                {% if request.user.is_authenticated %}
+                async function fetchNotifications() {
+                    try {
+                        const response = await fetch("{% url 'notifications_feed' %}", {
+                            headers: { "X-Requested-With": "XMLHttpRequest" }
+                        });
+                        if (!response.ok) {
+                            return;
+                        }
+
+                        const payload = await response.json();
+                        (payload.notifications || []).forEach((notification) => showToast(notification));
+                    } catch (error) {
+                        console.error("Notification polling failed", error);
+                    }
+                }
+
+                fetchNotifications();
+                window.setInterval(fetchNotifications, 20000);
+                {% endif %}
+            })();
+        </script>
     </body>
 </html>

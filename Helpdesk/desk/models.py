@@ -71,6 +71,12 @@ class Ticket(models.Model):
         default=get_default_technician,
         related_name="assigned_tickets",
     )
+    participants = models.ManyToManyField(
+        User,
+        blank=True,
+        related_name="visible_tickets",
+        verbose_name="Участники",
+    )
     progress = models.CharField(
         max_length=25,
         choices=Progres.choices,
@@ -126,3 +132,36 @@ class Document(models.Model):
     class Meta:
         verbose_name_plural = "Документы"
         verbose_name = "Документ"
+
+
+class Notification(models.Model):
+    class Levels(models.TextChoices):
+        INFO = "info", "Информация"
+        SUCCESS = "success", "Успешно"
+        WARNING = "warning", "Предупреждение"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+        verbose_name="Пользователь",
+    )
+    title = models.CharField(max_length=255, verbose_name="Заголовок")
+    body = models.TextField(blank=True, verbose_name="Текст")
+    level = models.CharField(
+        max_length=20,
+        choices=Levels.choices,
+        default=Levels.INFO,
+        verbose_name="Уровень",
+    )
+    link = models.CharField(max_length=255, blank=True, verbose_name="Ссылка")
+    is_read = models.BooleanField(default=False, verbose_name="Прочитано")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Создано")
+
+    class Meta:
+        ordering = ["created_at"]
+        verbose_name = "Уведомление"
+        verbose_name_plural = "Уведомления"
+
+    def __str__(self):
+        return f"{self.title} -> {self.user}"

@@ -9,6 +9,7 @@ Environment variables:
 - `DEBUG`
 - `ALLOWED_HOSTS`
 - `DATABASE_URL`
+- `MAX_UPLOAD_SIZE_MB`
 - `EMAIL_HOST`
 - `EMAIL_PORT`
 - `EMAIL_USE_SSL`

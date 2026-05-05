@@ -11,6 +11,7 @@ from django.urls import reverse
 from .forms import LoginForm, TicketForm, VerboseNameBackend
 from .models import (
     Document,
+    Notification,
     Ticket,
     UserProfile,
     admin_group_name,
@@ -193,13 +194,25 @@ class TicketAccessTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("index"))
+        self.assertEqual(response.url, reverse("ticket", kwargs={"ticket_id": self.assigned_ticket.pk}))
         self.assigned_ticket.refresh_from_db()
 
         self.assertEqual(self.assigned_ticket.technician, self.executor_2)
         self.assertEqual(self.assigned_ticket.progress, Ticket.Progres.INPROGRESS)
+        self.assertTrue(self.assigned_ticket.participants.filter(pk=self.executor_1.pk).exists())
         self.assertEqual(self.assigned_ticket.chat[-2]["event_type"], "assignment")
         self.assertEqual(self.assigned_ticket.chat[-1]["event_type"], "progress")
+
+    def test_previous_executor_keeps_access_after_reassignment(self):
+        self.assigned_ticket.participants.add(self.executor_1)
+        self.assigned_ticket.technician = self.executor_2
+        self.assigned_ticket.save()
+
+        self.client.force_login(self.executor_1)
+
+        response = self.client.get(reverse("ticket", kwargs={"ticket_id": self.assigned_ticket.pk}))
+
+        self.assertEqual(response.status_code, 200)
 
     def test_regular_user_cannot_change_ticket_workflow(self):
         self.client.force_login(self.user)
@@ -293,6 +306,27 @@ class TicketDocumentFlowTests(TestCase):
         self.assertEqual(self.ticket.chat[1]["message"], "Смотри файл")
         self.assertEqual(document.file.name.split("/")[-1], "manual.txt")
 
+    def test_chat_upload_rejects_too_large_file(self):
+        oversized = SimpleUploadedFile(
+            "large.bin",
+            b"xx",
+            content_type="application/octet-stream",
+        )
+
+        with override_settings(MAX_UPLOAD_SIZE_MB=0, MAX_UPLOAD_SIZE_BYTES=1):
+            response = self.client.post(
+                reverse("send_message", kwargs={"ticket_id": self.ticket.pk}),
+                {
+                    "message_text": "too large",
+                    "chat_documents": oversized,
+                },
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "превышает")
+        self.assertEqual(Document.objects.filter(ticket=self.ticket).count(), 0)
+
     def test_delete_document_marks_chat_entry_and_removes_document(self):
         document = Document.objects.create(
             ticket=self.ticket,
@@ -325,6 +359,34 @@ class TicketDocumentFlowTests(TestCase):
         self.assertFalse(Document.objects.filter(pk=document.pk).exists())
         self.assertTrue(self.ticket.chat[0]["document_deleted"])
         self.assertEqual(self.ticket.chat[0]["document_url"], "")
+
+    def test_document_download_requires_ticket_access(self):
+        document = Document.objects.create(
+            ticket=self.ticket,
+            file=SimpleUploadedFile("report.txt", b"report", content_type="text/plain"),
+        )
+        outsider = User.objects.create_user(username="outsider", password="secret123")
+        _create_profile(outsider, "Р§СѓР¶РѕР№")
+        self.client.force_login(outsider)
+
+        response = self.client.get(reverse("download_document", kwargs={"document_id": document.pk}))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_participant_can_download_document(self):
+        document = Document.objects.create(
+            ticket=self.ticket,
+            file=SimpleUploadedFile("report.txt", b"report", content_type="text/plain"),
+        )
+        participant = User.objects.create_user(username="participant", password="secret123")
+        _create_profile(participant, "РЈС‡Р°СЃС‚РЅРёРє")
+        self.ticket.participants.add(participant)
+        self.client.force_login(participant)
+
+        response = self.client.get(reverse("download_document", kwargs={"document_id": document.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('filename="report.txt"', response.get("Content-Disposition"))
 
     def test_movement_events_include_structured_system_steps(self):
         self.ticket.chat = [
@@ -529,3 +591,50 @@ class NotificationTests(TestCase):
         self.assertTrue(result)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["enabled@example.com"])
+
+    def test_notifications_feed_returns_unread_items_and_marks_them_read(self):
+        user = User.objects.create_user(username="notify-user", password="secret123")
+        _create_profile(user, "РЈРІРµРґРѕРјР»СЏРµРјС‹Р№")
+        Notification.objects.create(
+            user=user,
+            title="РќРѕРІР°СЏ Р·Р°СЏРІРєР°",
+            body="Р’Р°Рј РЅР°Р·РЅР°С‡РµРЅР° Р·Р°СЏРІРєР°.",
+            level=Notification.Levels.SUCCESS,
+            link="/desk/1/",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("notifications_feed"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["notifications"]), 1)
+        self.assertFalse(
+            Notification.objects.filter(user=user, is_read=False).exists()
+        )
+
+    def test_ticket_creation_creates_in_app_notification_for_executor(self):
+        executor_group = Group.objects.get(name=executor_group_name)
+        creator = User.objects.create_user(username="creator-ui", password="secret123")
+        _create_profile(creator, "РЎРѕР·РґР°С‚РµР»СЊ")
+        executor = User.objects.create_user(
+            username="executor-ui",
+            password="secret123",
+            email="executor-ui@example.com",
+        )
+        _create_profile(executor, "РСЃРїРѕР»РЅРёС‚РµР»СЊ")
+        executor.groups.add(executor_group)
+        self.client.force_login(creator)
+
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "РРЅС†РёРґРµРЅС‚",
+                "content": "РќРѕРІР°СЏ Р·Р°СЏРІРєР°",
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": executor.pk,
+                "document_names": [""],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Notification.objects.filter(user=executor).exists())
