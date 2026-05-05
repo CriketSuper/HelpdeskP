@@ -4,3 +4,5 @@ __pycache__/
 Helpdesk/db.sqlite3
 *tmp/
 media/
+logs/
+tmp*

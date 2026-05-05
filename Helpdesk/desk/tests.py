@@ -413,6 +413,14 @@ class LogoutTests(TestCase):
         self.assertEqual(response.url, "/desk/login/")
 
 
+class RoutingTests(TestCase):
+    def test_root_redirects_to_desk(self):
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/desk/")
+
+
 class ProfileSettingsTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(

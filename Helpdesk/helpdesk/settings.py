@@ -6,6 +6,8 @@ from decouple import Config, Csv, RepositoryEnv, config as auto_config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR.parent / ".env"
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
 
 env = auto_config
 if ENV_FILE.exists():
@@ -130,3 +132,51 @@ DEFAULT_ADMIN_USERNAME = env("DEFAULT_ADMIN_USERNAME", default="admin")
 DEFAULT_ADMIN_PASSWORD = env("DEFAULT_ADMIN_PASSWORD", default="admin")
 DEFAULT_ADMIN_EMAIL = env("DEFAULT_ADMIN_EMAIL", default="admin@example.com")
 DEFAULT_ADMIN_VERBOSE_NAME = env("DEFAULT_ADMIN_VERBOSE_NAME", default="Администратор")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        },
+        "simple": {
+            "format": "[%(levelname)s] %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOG_DIR / "helpdesk.log"),
+            "maxBytes": 5 * 1024 * 1024,
+            "backupCount": 3,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+    },
+    "root": {
+        "handlers": ["console", "file"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console", "file"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "desk": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
