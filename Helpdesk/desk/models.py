@@ -89,10 +89,15 @@ class Ticket(models.Model):
         default=Status.OPENED,
         verbose_name="Открытость заявки",
     )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="Дата и время создания",
+    )
     published = models.DateTimeField(
         auto_now=True,
         db_index=True,
-        verbose_name="Дата и время создания",
+        verbose_name="Дата и время изменения",
     )
     chat = models.JSONField(default=list, blank=True, verbose_name="Чат")
     documents = models.ManyToManyField(

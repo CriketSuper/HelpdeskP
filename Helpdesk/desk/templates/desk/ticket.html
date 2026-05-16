@@ -128,6 +128,30 @@
         border-top: 1px solid #e9ecef;
     }
 
+    .ticket-info-footer {
+        margin-top: auto;
+        padding-top: 1.25rem;
+        border-top: 1px solid #e9ecef;
+        align-items: start;
+        row-gap: 1rem;
+    }
+
+    .ticket-info-actions-row {
+        margin-top: 1rem;
+    }
+
+    .ticket-info-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .ticket-status-form {
+        margin: 0;
+    }
+
     .executor-search-wrap {
         position: relative;
     }
@@ -526,8 +550,8 @@
                                 </div>
                             </div>
 
-                            {% if can_assign_technician or can_edit_progress %}
-                            <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+{% if can_assign_technician or can_edit_progress %}
+                            <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}" id="ticket-workflow-form">
                                 {% csrf_token %}
                                 <div class="row mb-3">
                                     <div class="col-md-6">
@@ -563,7 +587,6 @@
                                         {% endif %}
                                     </div>
                                 </div>
-                                <button type="submit" class="btn btn-primary mt-2" name="save-ticket" value="true">Сохранить</button>
                             </form>
                             {% else %}
                             <div class="row mb-3">
@@ -578,34 +601,43 @@
                             </div>
                             {% endif %}
 
-                            <div class="row">
+                            <div class="row ticket-info-footer">
+                                <div class="col-md-6">
+                                    <h5 class="fw-bold">Дата создания:</h5>
+                                    <p class="fw-light mb-0">{{ current_ticket.created_at|date:"d.m.Y H:i" }}</p>
+                                </div>
                                 <div class="col-md-6">
                                     <h5 class="fw-bold">Дата изменения:</h5>
-                                    <p class="fw-light">{{ current_ticket.published }}</p>
+                                    <p class="fw-light mb-0">{{ current_ticket.published|date:"d.m.Y H:i" }}</p>
                                 </div>
-                                {% if can_change_ticket_status %}
-                                    {% if current_ticket.status == "закрыта" %}
-                                    <div class="col-md-6">
-                                        <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+                            </div>
+                            <div class="row ticket-info-actions-row">
+                                <div class="col-12">
+                                    <div class="ticket-info-actions">
+                                        {% if can_change_ticket_status %}
+                                            {% if current_ticket.status == "закрыта" %}
+                                        <form class="ticket-status-form" method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
                                             {% csrf_token %}
-                                            <div class="form-check ms-5 d-flex align-items-center gap-2">
+                                            <div class="form-check d-flex align-items-center gap-2 mb-0">
                                                 <input class="form-check-input ticket-status-check" type="checkbox" id="open-check-{{ current_ticket.id }}">
                                                 <button type="submit" class="btn btn-success ticket-status-btn" name="open-ticket" disabled>Открыть заявку</button>
                                             </div>
                                         </form>
-                                    </div>
-                                    {% else %}
-                                    <div class="col-md-6">
-                                        <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+                                            {% else %}
+                                        <form class="ticket-status-form" method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
                                             {% csrf_token %}
-                                            <div class="form-check ms-5 d-flex align-items-center gap-2">
+                                            <div class="form-check d-flex align-items-center gap-2 mb-0">
                                                 <input class="form-check-input ticket-status-check" type="checkbox" id="close-check-{{ current_ticket.id }}">
                                                 <button type="submit" class="btn btn-outline-danger ticket-status-btn" name="close-ticket" disabled>Закрыть заявку</button>
                                             </div>
                                         </form>
+                                            {% endif %}
+                                        {% endif %}
+                                        {% if can_assign_technician or can_edit_progress %}
+                                        <button type="submit" class="btn btn-primary" form="ticket-workflow-form" name="save-ticket" value="true">Сохранить</button>
+                                        {% endif %}
                                     </div>
-                                    {% endif %}
-                                {% endif %}
+                                </div>
                             </div>
                         </div>
                     </div>

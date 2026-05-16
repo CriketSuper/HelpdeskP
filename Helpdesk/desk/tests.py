@@ -181,7 +181,7 @@ class TicketAccessTests(TestCase):
         ticket_ids = {ticket.pk for ticket in response.context["tickets"]}
         self.assertEqual(ticket_ids, {self.assigned_ticket.pk})
 
-    def test_index_is_paginated_by_thirty_tickets(self):
+    def test_index_is_paginated_by_eighteen_tickets(self):
         self.client.force_login(self.admin)
 
         for index in range(32):
@@ -197,11 +197,11 @@ class TicketAccessTests(TestCase):
 
         self.assertEqual(first_page_response.status_code, 200)
         self.assertEqual(second_page_response.status_code, 200)
-        self.assertEqual(len(first_page_response.context["tickets"]), 30)
+        self.assertEqual(len(first_page_response.context["tickets"]), 18)
         self.assertTrue(first_page_response.context["is_paginated"])
-        self.assertEqual(first_page_response.context["page_obj"].paginator.per_page, 30)
+        self.assertEqual(first_page_response.context["page_obj"].paginator.per_page, 18)
         self.assertEqual(first_page_response.context["page_obj"].paginator.count, 35)
-        self.assertEqual(len(second_page_response.context["tickets"]), 5)
+        self.assertEqual(len(second_page_response.context["tickets"]), 17)
 
     def test_executor_can_reassign_and_change_progress_for_assigned_ticket(self):
         self.client.force_login(self.executor_1)

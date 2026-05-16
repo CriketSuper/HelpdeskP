@@ -299,6 +299,7 @@
             <th scope='col'>Критичность</th>
             <th scope='col'>Исполнитель</th>
             <th scope='col'>Статус</th>
+            <th scope='col'>Дата создания</th>
             <th scope='col'>Дата изменения</th>
         </thead>
         {% for t in tickets %}
@@ -309,6 +310,7 @@
             <td>{{ t.criticalness }}</td>
             <td>{% if t.technician.profile %}{{ t.technician.profile }}{% else %}{{ t.technician }}{% endif %}</td>
             <td>{{ t.progress }}</td>
+            <td>{{ t.created_at|date:"d.m.Y H:i" }}</td>
             <td>{{ t.published|date:"d.m.Y H:i" }}</td>
         </tr>
         {% endfor %}
