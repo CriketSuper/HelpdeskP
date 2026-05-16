@@ -183,6 +183,18 @@
         border: 1px dashed #cfd8e3;
         border-radius: 1.1rem;
         background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
+        transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .upload-widget.is-dragover {
+        border-color: #0d6efd;
+        background: linear-gradient(180deg, #f2f7ff 0%, #eaf2ff 100%);
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.12);
+    }
+
+    .upload-widget.is-dragover .upload-add-card {
+        border-color: #0d6efd;
+        background: #eef5ff;
     }
 
     .upload-grid {
@@ -715,6 +727,7 @@
     const chatDocumentsInput = document.getElementById("chat_documents");
     const chatDocumentsStatus = document.getElementById("chat-documents-status");
     const chatDocumentsPreviewGrid = document.getElementById("chat-documents-preview-grid");
+    const chatDocumentsUploadWidget = chatDocumentsPreviewGrid?.closest(".upload-widget");
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
     const statusChecks = document.querySelectorAll(".ticket-status-check");
     const technicianSearchInput = document.getElementById("ticket-technician-search");
@@ -798,6 +811,43 @@
         }
 
         grid.classList.remove("upload-grid-hover-locked");
+    }
+
+    function attachUploadDropzone(widget, onFilesDropped) {
+        if (!widget) {
+            return;
+        }
+
+        let dragDepth = 0;
+
+        widget.addEventListener("dragenter", (event) => {
+            event.preventDefault();
+            dragDepth += 1;
+            widget.classList.add("is-dragover");
+        });
+
+        widget.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            widget.classList.add("is-dragover");
+        });
+
+        widget.addEventListener("dragleave", (event) => {
+            event.preventDefault();
+            dragDepth = Math.max(0, dragDepth - 1);
+            if (dragDepth === 0) {
+                widget.classList.remove("is-dragover");
+            }
+        });
+
+        widget.addEventListener("drop", (event) => {
+            event.preventDefault();
+            dragDepth = 0;
+            widget.classList.remove("is-dragover");
+            const droppedFiles = Array.from(event.dataTransfer?.files || []);
+            if (droppedFiles.length > 0) {
+                onFilesDropped(droppedFiles);
+            }
+        });
     }
 
     function updateUploadPreview(input, grid, statusNode) {
@@ -962,6 +1012,16 @@
     if (chatDocumentsInput && chatDocumentsStatus && chatDocumentsPreviewGrid) {
         chatDocumentsPreviewGrid.addEventListener("pointermove", () => unlockPreviewHover(chatDocumentsPreviewGrid), { passive: true });
         chatDocumentsPreviewGrid.addEventListener("pointerleave", () => unlockPreviewHover(chatDocumentsPreviewGrid), { passive: true });
+        attachUploadDropzone(chatDocumentsUploadWidget, (droppedFiles) => {
+            const mergedFiles = mergeSelectedFiles(selectedChatDocuments, droppedFiles);
+            if (!validateDocuments(mergedFiles)) {
+                syncDocumentsInput(chatDocumentsInput, selectedChatDocuments);
+                return;
+            }
+            selectedChatDocuments = mergedFiles;
+            syncDocumentsInput(chatDocumentsInput, selectedChatDocuments);
+            updateUploadPreview(chatDocumentsInput, chatDocumentsPreviewGrid, chatDocumentsStatus);
+        });
         chatDocumentsInput.addEventListener("change", function() {
             const mergedFiles = mergeSelectedFiles(selectedChatDocuments, Array.from(this.files || []));
             if (!validateDocuments(mergedFiles)) {
