@@ -1,7 +1,59 @@
 {% extends 'layout/basic.html' %}
 
 {% block filter %}
-<div class="d-flex">
+<style>
+  .filter-technician-wrap {
+    position: relative;
+  }
+
+  .filter-technician-results {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    display: none;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 0.35rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.75rem;
+    background: #fff;
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+  }
+
+  .filter-technician-results.is-open {
+    display: block;
+  }
+
+  .filter-technician-option {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.6rem;
+  }
+
+  .filter-technician-option:hover,
+  .filter-technician-option.is-active,
+  .filter-technician-option:focus {
+    background: #f1f3f5;
+    outline: none;
+  }
+
+  .filter-technician-name {
+    font-weight: 600;
+    color: #212529;
+  }
+
+  .filter-technician-meta {
+    font-size: 0.85rem;
+    color: #6c757d;
+  }
+</style>
+
+<div class="d-flex filter-toolbar">
   <button type="button" class="btn btn-primary btn-lg me-2" data-bs-toggle="modal" data-bs-target="#filterModal">
       Фильтр
   </button>
@@ -19,25 +71,28 @@
             <div class="form-row">
               <div class="mb-3">
                 <label for="title">Тема</label>
-                <input type="text" class="form-control w-75" id="title" name="title">
+                <input type="text" class="form-control w-75" id="title" name="title" value="{{ title|default:'' }}">
               </div>
               <div class="mb-3">
                 <label for="created_by">Автор</label>
-                <input type="text" class="form-control w-75" id="created_by" name="created_by">
+                <input type="text" class="form-control w-75" id="created_by" name="created_by" value="{{ created_by|default:'' }}">
               </div>
               <div class="mb-3">
                 <label for="criticalness">Критичность</label>
                 <select id="criticalness" class="form-control w-50" name="criticalness">
                   <option value="">Выберите...</option>
-                  <option value="LOW">Низкая</option>
-                  <option value="MEDIUM">Средняя</option>
-                  <option value="HIGH">Высокая</option>
-                  <option value="CRITICAL">Критичная</option>
+                  <option value="LOW" {% if criticalness == "LOW" %}selected{% endif %}>Низкая</option>
+                  <option value="MEDIUM" {% if criticalness == "MEDIUM" %}selected{% endif %}>Средняя</option>
+                  <option value="HIGH" {% if criticalness == "HIGH" %}selected{% endif %}>Высокая</option>
+                  <option value="CRITICAL" {% if criticalness == "CRITICAL" %}selected{% endif %}>Критичная</option>
                 </select>
               </div>
               <div class="mb-3">
                 <label for="technician">Исполнитель</label>
-                <input type="text" class="form-control w-75" id="technician" name="technician">
+                <div class="filter-technician-wrap w-75">
+                  <input type="text" class="form-control" id="technician" name="technician" autocomplete="off" value="{{ technician|default:'' }}">
+                  <div id="filter-technician-results" class="filter-technician-results"></div>
+                </div>
               </div>
             </div>
             <div class="form-row">
@@ -61,11 +116,11 @@
               </div>
               <div class="mb-3">
                 <label for="published_start">Дата начала публикации</label>
-                <input type="date" class="form-control w-75" id="published_start" name="published_start">
+                <input type="date" class="form-control w-75" id="published_start" name="published_start" value="{{ published_start|default:'' }}">
               </div>
               <div class="mb-3">
                 <label for="published_end">Дата окончания публикации</label>
-                <input type="date" class="form-control w-75" id="published_end" name="published_end">
+                <input type="date" class="form-control w-75" id="published_end" name="published_end" value="{{ published_end|default:'' }}">
               </div>
             </div>
             <div class="modal-footer">
@@ -77,10 +132,165 @@
     </div>
   </div>
 </div>
+
+<script>
+  (function() {
+    const technicianInput = document.getElementById("technician");
+    const technicianResults = document.getElementById("filter-technician-results");
+    const techniciansData = [
+      {% for user in technician_users %}
+      {
+        name: "{% if user.profile %}{{ user.profile|escapejs }}{% else %}{{ user.username|escapejs }}{% endif %}",
+        username: "{{ user.username|escapejs }}",
+      },
+      {% endfor %}
+    ];
+    let activeTechnicianIndex = -1;
+
+    if (!technicianInput || !technicianResults) {
+      return;
+    }
+
+    function getTechnicianOptions() {
+      return Array.from(technicianResults.querySelectorAll(".filter-technician-option"));
+    }
+
+    function setActiveTechnician(index) {
+      const options = getTechnicianOptions();
+      activeTechnicianIndex = index;
+
+      options.forEach((option, optionIndex) => {
+        option.classList.toggle("is-active", optionIndex === activeTechnicianIndex);
+      });
+
+      if (activeTechnicianIndex >= 0 && options[activeTechnicianIndex]) {
+        options[activeTechnicianIndex].scrollIntoView({ block: "nearest" });
+      }
+    }
+
+    function closeTechnicianResults() {
+      technicianResults.classList.remove("is-open");
+      technicianResults.innerHTML = "";
+      activeTechnicianIndex = -1;
+    }
+
+    function selectTechnician(user) {
+      technicianInput.value = user.name;
+      closeTechnicianResults();
+    }
+
+    function renderTechnicianResults(query) {
+      const normalizedQuery = query.trim().toLowerCase();
+      if (!normalizedQuery) {
+        closeTechnicianResults();
+        return;
+      }
+
+      const filteredUsers = techniciansData
+        .filter((user) => (
+          user.name.toLowerCase().includes(normalizedQuery) ||
+          user.username.toLowerCase().includes(normalizedQuery)
+        ))
+        .slice(0, 8);
+
+      if (filteredUsers.length === 0) {
+        closeTechnicianResults();
+        return;
+      }
+
+      technicianResults.innerHTML = "";
+      filteredUsers.forEach((user) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "filter-technician-option";
+        option.innerHTML = `
+          <div class="filter-technician-name">${user.name}</div>
+          <div class="filter-technician-meta">${user.username}</div>
+        `;
+        option.addEventListener("click", () => selectTechnician(user));
+        technicianResults.appendChild(option);
+      });
+
+      technicianResults.classList.add("is-open");
+      setActiveTechnician(filteredUsers.length > 0 ? 0 : -1);
+    }
+
+    technicianInput.addEventListener("input", () => {
+      renderTechnicianResults(technicianInput.value);
+    });
+
+    technicianInput.addEventListener("focus", () => {
+      if (technicianInput.value.trim()) {
+        renderTechnicianResults(technicianInput.value);
+      }
+    });
+
+    technicianInput.addEventListener("keydown", (event) => {
+      const options = getTechnicianOptions();
+      if (!technicianResults.classList.contains("is-open") || options.length === 0) {
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        const nextIndex = activeTechnicianIndex < options.length - 1 ? activeTechnicianIndex + 1 : 0;
+        setActiveTechnician(nextIndex);
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        const previousIndex = activeTechnicianIndex > 0 ? activeTechnicianIndex - 1 : options.length - 1;
+        setActiveTechnician(previousIndex);
+        return;
+      }
+
+      if (event.key === "Enter" && activeTechnicianIndex >= 0 && options[activeTechnicianIndex]) {
+        event.preventDefault();
+        options[activeTechnicianIndex].click();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        closeTechnicianResults();
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!technicianResults.contains(event.target) && event.target !== technicianInput) {
+        closeTechnicianResults();
+      }
+    });
+  })();
+</script>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid">
+<style>
+  .index-page {
+    min-height: calc(100vh - 13rem);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .index-table-wrap {
+    flex: 1 1 auto;
+  }
+
+  .index-pagination {
+    margin-top: auto;
+    padding-top: 1rem;
+  }
+
+  @media (max-width: 991.98px) {
+    .index-page {
+      min-height: calc(100vh - 11rem);
+    }
+  }
+</style>
+
+<div class="container-fluid index-page">
+    <div class="index-table-wrap">
     <table class="table table-hover">
         <thead align="left">
             <th scope='col'>ID</th>
@@ -103,5 +313,34 @@
         </tr>
         {% endfor %}
     </table>
+    </div>
+
+    {% if is_paginated %}
+    <nav class="index-pagination" aria-label="Пагинация заявок">
+        <ul class="pagination justify-content-center mb-0">
+            <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page=1" aria-label="Первая">Первая</a>
+            </li>
+            <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={% if page_obj.has_previous %}{{ page_obj.previous_page_number }}{% else %}1{% endif %}" aria-label="Назад">Назад</a>
+            </li>
+
+            {% for page_num in page_obj.paginator.page_range %}
+                {% if page_num >= page_obj.number|add:-2 and page_num <= page_obj.number|add:2 %}
+                <li class="page-item {% if page_num == page_obj.number %}active{% endif %}">
+                    <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_num }}">{{ page_num }}</a>
+                </li>
+                {% endif %}
+            {% endfor %}
+
+            <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={% if page_obj.has_next %}{{ page_obj.next_page_number }}{% else %}{{ page_obj.paginator.num_pages }}{% endif %}" aria-label="Вперёд">Вперёд</a>
+            </li>
+            <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+                <a class="page-link" href="?{% if pagination_query %}{{ pagination_query }}&{% endif %}page={{ page_obj.paginator.num_pages }}" aria-label="Последняя">Последняя</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
 </div>
 {% endblock %}

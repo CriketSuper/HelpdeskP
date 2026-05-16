@@ -9,3 +9,4 @@ tmp*
 .vscode/
 Helpdesk/staticfiles/
 Helpdesk/logs/
+test_media_root/

@@ -181,6 +181,28 @@ class TicketAccessTests(TestCase):
         ticket_ids = {ticket.pk for ticket in response.context["tickets"]}
         self.assertEqual(ticket_ids, {self.assigned_ticket.pk})
 
+    def test_index_is_paginated_by_thirty_tickets(self):
+        self.client.force_login(self.admin)
+
+        for index in range(32):
+            Ticket.objects.create(
+                title=f"Bulk {index}",
+                content="Bulk ticket",
+                created_by=self.user,
+                technician=self.executor_1,
+            )
+
+        first_page_response = self.client.get(reverse("index"))
+        second_page_response = self.client.get(reverse("index"), {"page": 2})
+
+        self.assertEqual(first_page_response.status_code, 200)
+        self.assertEqual(second_page_response.status_code, 200)
+        self.assertEqual(len(first_page_response.context["tickets"]), 30)
+        self.assertTrue(first_page_response.context["is_paginated"])
+        self.assertEqual(first_page_response.context["page_obj"].paginator.per_page, 30)
+        self.assertEqual(first_page_response.context["page_obj"].paginator.count, 35)
+        self.assertEqual(len(second_page_response.context["tickets"]), 5)
+
     def test_executor_can_reassign_and_change_progress_for_assigned_ticket(self):
         self.client.force_login(self.executor_1)
 
@@ -288,23 +310,34 @@ class TicketDocumentFlowTests(TestCase):
             reverse("send_message", kwargs={"ticket_id": self.ticket.pk}),
             {
                 "message_text": "Смотри файл",
-                "chat_documents": SimpleUploadedFile(
-                    "manual.txt",
-                    b"hello",
-                    content_type="text/plain",
-                ),
+                "chat_documents": [
+                    SimpleUploadedFile(
+                        "manual.txt",
+                        b"hello",
+                        content_type="text/plain",
+                    ),
+                    SimpleUploadedFile(
+                        "guide.txt",
+                        b"world",
+                        content_type="text/plain",
+                    ),
+                ],
             },
         )
 
         self.assertEqual(response.status_code, 302)
 
         self.ticket.refresh_from_db()
-        document = Document.objects.get(ticket=self.ticket)
+        documents = list(Document.objects.filter(ticket=self.ticket).order_by("id"))
 
-        self.assertEqual(self.ticket.related_documents.count(), 1)
-        self.assertEqual(self.ticket.chat[0]["document_name"], "manual.txt")
+        self.assertEqual(self.ticket.related_documents.count(), 2)
+        self.assertEqual(self.ticket.chat[0]["message"], "прикрепил новые документы")
+        self.assertEqual(len(self.ticket.chat[0]["documents"]), 2)
+        self.assertEqual(self.ticket.chat[0]["documents"][0]["document_name"], "manual.txt")
+        self.assertEqual(self.ticket.chat[0]["documents"][1]["document_name"], "guide.txt")
         self.assertEqual(self.ticket.chat[1]["message"], "Смотри файл")
-        self.assertEqual(document.file.name.split("/")[-1], "manual.txt")
+        self.assertEqual(documents[0].file.name.split("/")[-1], "manual.txt")
+        self.assertEqual(documents[1].file.name.split("/")[-1], "guide.txt")
 
     def test_chat_upload_rejects_too_large_file(self):
         oversized = SimpleUploadedFile(
@@ -359,6 +392,41 @@ class TicketDocumentFlowTests(TestCase):
         self.assertFalse(Document.objects.filter(pk=document.pk).exists())
         self.assertTrue(self.ticket.chat[0]["document_deleted"])
         self.assertEqual(self.ticket.chat[0]["document_url"], "")
+
+    def test_delete_document_marks_nested_chat_entry_and_removes_document(self):
+        document = Document.objects.create(
+            ticket=self.ticket,
+            file=SimpleUploadedFile("nested.txt", b"nested", content_type="text/plain"),
+        )
+        self.ticket.chat = [
+            {
+                "author": "Пользователь 1",
+                "message": "прикрепил новый документ",
+                "datetime": "2026-05-05 00:00:00",
+                "documents": [
+                    {
+                        "document_id": document.pk,
+                        "document_name": "nested.txt",
+                        "document_deleted": False,
+                    }
+                ],
+            }
+        ]
+        self.ticket.save()
+
+        response = self.client.post(
+            reverse("send_message", kwargs={"ticket_id": self.ticket.pk}),
+            {
+                "delete-document": "true",
+                "document_id": document.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.ticket.refresh_from_db()
+
+        self.assertFalse(Document.objects.filter(pk=document.pk).exists())
+        self.assertTrue(self.ticket.chat[0]["documents"][0]["document_deleted"])
 
     def test_document_download_requires_ticket_access(self):
         document = Document.objects.create(

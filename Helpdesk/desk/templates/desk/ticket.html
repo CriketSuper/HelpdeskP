@@ -4,12 +4,21 @@
 
 {% block content %}
 <style>
-    .document-list {
+    .ticket-document-list {
+        display: grid;
+        gap: 0.75rem;
+        max-height: 19rem;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    .chat-document-list {
         display: grid;
         gap: 0.75rem;
     }
 
     .document-card {
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -26,8 +35,8 @@
     }
 
     .document-icon {
-        width: 2.5rem;
-        height: 2.5rem;
+        width: 2.7rem;
+        height: 2.7rem;
         object-fit: contain;
         flex-shrink: 0;
     }
@@ -37,6 +46,7 @@
         align-items: center;
         gap: 0.9rem;
         min-width: 0;
+        flex: 1 1 auto;
     }
 
     .document-name {
@@ -52,6 +62,27 @@
         color: #6c757d;
     }
 
+    .document-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .document-remove-form {
+        opacity: 0;
+        transform: translateY(-0.15rem);
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .document-card:hover .document-remove-form,
+    .document-card:focus-within .document-remove-form {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+    }
+
     .chat-document {
         margin-top: 0.75rem;
         padding: 0.75rem;
@@ -60,16 +91,202 @@
         border: 1px solid #e9ecef;
     }
 
-    .file-picker-row {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
+    .ticket-pane {
+        min-height: 36rem;
+        padding: 0.75rem;
     }
 
-    .file-picker-status {
+    .ticket-info-row {
+        min-height: 28rem;
+        align-items: stretch;
+    }
+
+    .ticket-info-primary {
+        display: flex;
+        flex-direction: column;
+        min-height: 28rem;
+        overflow: hidden;
+    }
+
+    .chat-message-list {
+        min-height: 16rem;
+        max-height: 24rem;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    .chat-empty-state {
+        min-height: 14rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .chat-compose {
+        margin-top: 1.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .executor-search-wrap {
+        position: relative;
+    }
+
+    .executor-search-results {
+        position: absolute;
+        top: calc(100% + 0.25rem);
+        left: 0;
+        right: 0;
+        z-index: 20;
+        display: none;
+        max-height: 260px;
+        overflow-y: auto;
+        padding: 0.35rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.75rem;
+        background: #fff;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .executor-search-results.is-open {
+        display: block;
+    }
+
+    .executor-search-option {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.6rem;
+    }
+
+    .executor-search-option:hover,
+    .executor-search-option.is-active,
+    .executor-search-option:focus {
+        background: #f1f3f5;
+        outline: none;
+    }
+
+    .executor-search-name {
+        font-weight: 600;
+        color: #212529;
+    }
+
+    .executor-search-meta {
+        font-size: 0.85rem;
         color: #6c757d;
+    }
+
+    .upload-widget {
+        padding: 1rem;
+        border: 1px dashed #cfd8e3;
+        border-radius: 1.1rem;
+        background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
+    }
+
+    .upload-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
+    }
+
+    .upload-card,
+    .upload-add-card {
+        flex: 0 0 190px;
+        width: 190px;
+        height: 138px;
+        padding: 1rem 0.95rem;
+        border: 1px solid #d6dce5;
+        border-radius: 1.1rem;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
+    }
+
+    .upload-card {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .upload-card-remove {
+        position: absolute;
+        inset: 0;
+        border: 0;
+        border-radius: inherit;
+        background: rgba(220, 53, 69, 0.92);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2.2rem;
+        font-weight: 300;
+        line-height: 1;
+        opacity: 0;
+        transform: scale(0.96);
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .upload-card:hover .upload-card-remove,
+    .upload-card:focus-within .upload-card-remove {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+    }
+
+    .upload-grid.upload-grid-hover-locked .upload-card:hover .upload-card-remove,
+    .upload-grid.upload-grid-hover-locked .upload-card:focus-within .upload-card-remove {
+        opacity: 0;
+        transform: scale(0.96);
+        pointer-events: none;
+    }
+
+    .upload-card-icon {
+        width: 3rem;
+        height: 3rem;
+        object-fit: contain;
+        margin-bottom: 0.75rem;
+    }
+
+    .upload-card-name {
+        font-weight: 600;
+        color: #212529;
         font-size: 0.95rem;
+        line-height: 1.3;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .upload-add-card {
+        cursor: pointer;
+        border-style: dashed;
+        color: #0d6efd;
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .upload-add-card:hover {
+        background: #eef5ff;
+        border-color: #0d6efd;
+    }
+
+    .upload-add-plus {
+        font-size: 2.1rem;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+    }
+
+    .upload-empty-text {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-top: 0.85rem;
     }
 
     .movement-wrapper {
@@ -133,245 +350,605 @@
         white-space: pre-line;
         text-align: left;
     }
+
+    .ticket-shell {
+        position: relative;
+    }
+
+    .ticket-actions {
+        position: absolute;
+        top: 4.35rem;
+        left: -4.05rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        z-index: 2;
+    }
+
+    .ticket-action-button {
+        width: 4.05rem;
+        height: 4rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1.5px solid #0d6efd;
+        border-right: none;
+        border-radius: 1.15rem 0 0 1.15rem;
+        background: #eaf2ff;
+        transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        box-shadow: none;
+        margin-right: -1px;
+    }
+
+    .ticket-action-button:hover {
+        background: #0d6efd;
+        border-color: #0d6efd;
+        border-right: none;
+        box-shadow: 0 10px 18px rgba(13, 110, 253, 0.18);
+    }
+
+    .ticket-action-button img {
+        width: 1.35rem;
+        height: 1.35rem;
+        filter: brightness(0) saturate(100%) invert(39%) sepia(93%) saturate(2580%) hue-rotate(205deg) brightness(101%) contrast(102%);
+        transition: filter 0.2s ease;
+    }
+
+    .ticket-action-button:hover img {
+        filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(0%) hue-rotate(164deg) brightness(103%) contrast(101%);
+    }
+
+    .ticket-main {
+        min-width: 0;
+    }
+
+    @media (max-width: 991.98px) {
+        .ticket-shell {
+            padding-left: 0;
+        }
+
+        .ticket-actions {
+            position: static;
+            flex-direction: row;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+            gap: 0.75rem;
+        }
+
+        .ticket-action-button {
+            width: 3.35rem;
+            height: 3.35rem;
+            border-right: 1.5px solid #0d6efd;
+            border-radius: 1.15rem;
+            margin-right: 0;
+        }
+
+        .upload-card,
+        .upload-add-card {
+            width: 100%;
+            flex-basis: 100%;
+        }
+    }
 </style>
 
 <h2 align="center">Заявка №{{ current_ticket.id }}</h2>
-<div class="container text-center overflow-hidden">
-    <ul class="nav nav-tabs justify-content-center nav-fill" id="myTab" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info-tab-pane" type="button" role="tab" aria-controls="info-tab-pane" aria-selected="true"><h4>Информация</h4></button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="chat-tab" data-bs-toggle="tab" data-bs-target="#chat-tab-pane" type="button" role="tab" aria-controls="chat-tab-pane" aria-selected="false"><h4>Чат</h4></button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link" id="movement-tab" data-bs-toggle="tab" data-bs-target="#movement-tab-pane" type="button" role="tab" aria-controls="movement-tab-pane" aria-selected="false"><h4>Движение</h4></button>
-        </li>
-    </ul>
-    <div class="tab-content" id="myTabContent">
-        <div class="tab-pane fade show active border" id="info-tab-pane" role="tabpanel" aria-labelledby="info-tab" tabindex="0" style="padding: 11px;">
-            <h3 class="text-center my-4">{{ current_ticket.title }}</h3>
-            <div class="row mb-3">
-                <div class="col-md-6 border" style="overflow: auto;">
-                    <h5 class="fw-bold mb-3">Содержание:</h5>
-                    <p class="fw-light">{{ current_ticket.content }}</p>
-                    <p><br></p><p><br></p>
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="fw-bold mb-0">Документы:</h5>
-                        <span class="badge text-bg-light">{{ current_ticket.related_documents.count }}</span>
-                    </div>
-                    <div class="text-start document-list">
-                        {% for document in current_ticket.related_documents.all %}
-                            {% with document.file.name as file_name %}
-                            <div class="document-card">
-                                <div class="document-main">
-                                    <img class="document-icon" src="{% static file_name|document_icon %}" alt="">
-                                    <div class="document-meta">
-                                        <p class="document-name">{{ file_name|custom_basename }}</p>
-                                        <p class="document-caption">Доступно участникам заявки</p>
+<div class="container text-center">
+    <div class="ticket-shell">
+        <div class="ticket-actions" aria-label="Действия по заявке">
+            <button class="ticket-action-button" type="button" title="Редактирование" aria-label="Редактирование">
+                <img src="{% static './images/icons/edit.svg' %}" alt="">
+            </button>
+            <button class="ticket-action-button" type="button" title="Распечатать" aria-label="Распечатать">
+                <img src="{% static './images/icons/print.svg' %}" alt="">
+            </button>
+            <button class="ticket-action-button" type="button" title="Скачать" aria-label="Скачать">
+                <img src="{% static './images/icons/download.svg' %}" alt="">
+            </button>
+            <button class="ticket-action-button" type="button" title="Ссылка" aria-label="Ссылка">
+                <img src="{% static './images/icons/link.svg' %}" alt="">
+            </button>
+        </div>
+
+        <div class="ticket-main">
+            <ul class="nav nav-tabs justify-content-center nav-fill" id="myTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info-tab-pane" type="button" role="tab" aria-controls="info-tab-pane" aria-selected="true"><h4>Информация</h4></button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="chat-tab" data-bs-toggle="tab" data-bs-target="#chat-tab-pane" type="button" role="tab" aria-controls="chat-tab-pane" aria-selected="false"><h4>Чат</h4></button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="movement-tab" data-bs-toggle="tab" data-bs-target="#movement-tab-pane" type="button" role="tab" aria-controls="movement-tab-pane" aria-selected="false"><h4>Движение</h4></button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="myTabContent">
+                <div class="tab-pane fade show active border ticket-pane" id="info-tab-pane" role="tabpanel" aria-labelledby="info-tab" tabindex="0">
+                    <h3 class="text-center my-4">{{ current_ticket.title }}</h3>
+                    <div class="row mb-3 ticket-info-row">
+                        <div class="col-md-6 border ticket-info-primary">
+                            <h5 class="fw-bold mb-3">Содержание:</h5>
+                            <p class="fw-light">{{ current_ticket.content }}</p>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="fw-bold mb-0">Документы:</h5>
+                                <span class="badge text-bg-light">{{ current_ticket.related_documents.count }}</span>
+                            </div>
+                            <div class="text-start ticket-document-list">
+                                {% for document in current_ticket.related_documents.all %}
+                                    {% with document.file.name as file_name %}
+                                    <div class="document-card">
+                                        <div class="document-main">
+                                            <img class="document-icon" src="{% static file_name|document_icon %}" alt="">
+                                            <div class="document-meta">
+                                                <p class="document-name">{{ file_name|custom_basename }}</p>
+                                                <p class="document-caption">Доступно участникам заявки</p>
+                                            </div>
+                                        </div>
+                                        <div class="document-actions">
+                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.id %}">Открыть</a>
+                                            {% if can_manage_documents %}
+                                            <form class="document-remove-form" method="post" action="{% url 'send_message' current_ticket.pk %}" onsubmit="return confirm('Удалить документ из заявки?');">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="document_id" value="{{ document.id }}">
+                                                <button type="submit" class="btn-close" name="delete-document" value="true" aria-label="Удалить"></button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
                                     </div>
+                                    {% endwith %}
+                                {% empty %}
+                                    <div class="alert alert-light border mb-0">Документы пока не прикреплены.</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <h5 class="fw-bold">Автор:</h5>
+                                    <p class="fw-light">{% if current_ticket.created_by.profile %}{{ current_ticket.created_by.profile }}{% else %}{{ current_ticket.created_by }}{% endif %}</p>
                                 </div>
-                                <div class="d-flex align-items-center gap-2">
-                                    <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.id %}">Открыть</a>
-                                    {% if can_manage_documents %}
-                                    <form method="post" action="{% url 'send_message' current_ticket.pk %}" onsubmit="return confirm('Удалить документ из заявки?');">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="document_id" value="{{ document.id }}">
-                                        <button type="submit" class="btn-close" name="delete-document" value="true" aria-label="Удалить"></button>
-                                    </form>
-                                    {% endif %}
+                                <div class="col-md-6">
+                                    <h5 class="fw-bold">Критичность:</h5>
+                                    <p class="fw-light">{{ current_ticket.criticalness }}</p>
                                 </div>
                             </div>
-                            {% endwith %}
-                        {% empty %}
-                            <div class="alert alert-light border mb-0">Документы пока не прикреплены.</div>
-                        {% endfor %}
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Автор:</h5>
-                            <p class="fw-light">{% if current_ticket.created_by.profile %}{{ current_ticket.created_by.profile }}{% else %}{{ current_ticket.created_by }}{% endif %}</p>
-                        </div>
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Критичность:</h5>
-                            <p class="fw-light">{{ current_ticket.criticalness }}</p>
-                        </div>
-                    </div>
-                    <p><br></p>
 
-                    {% if can_assign_technician or can_edit_progress %}
-                    <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
-                        {% csrf_token %}
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <h5 class="fw-bold">Исполнитель:</h5>
-                                {% if can_assign_technician %}
-                                <select class="form-select" name="technician">
-                                    {% for user in users %}
-                                        {% if current_ticket.technician and user.id == current_ticket.technician.id %}
-                                            <option value="{{ user.id }}" selected>{{ user.profile }}</option>
+                            {% if can_assign_technician or can_edit_progress %}
+                            <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+                                {% csrf_token %}
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <h5 class="fw-bold">Исполнитель:</h5>
+                                        {% if can_assign_technician %}
+                                        <input type="hidden" name="technician" id="ticket-technician-id" value="{% if current_ticket.technician %}{{ current_ticket.technician.id }}{% endif %}">
+                                        <div class="executor-search-wrap">
+                                            <input
+                                                type="text"
+                                                id="ticket-technician-search"
+                                                class="form-control"
+                                                autocomplete="off"
+                                                placeholder="Начните вводить исполнителя"
+                                                value="{% if current_ticket.technician %}{{ current_ticket.technician.profile }}{% endif %}"
+                                            >
+                                            <div id="ticket-technician-results" class="executor-search-results"></div>
+                                        </div>
                                         {% else %}
-                                            <option value="{{ user.id }}">{{ user.profile }}</option>
+                                        <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{ current_ticket.technician }}{% endif %}</p>
                                         {% endif %}
-                                    {% endfor %}
-                                </select>
-                                {% else %}
-                                <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{ current_ticket.technician }}{% endif %}</p>
-                                {% endif %}
-                            </div>
-
-                            <div class="col-md-6">
-                                <h5 class="fw-bold">Статус заявки:</h5>
-                                {% if can_edit_progress %}
-                                <select class="form-select" name="progress">
-                                    {% for choice in current_ticket.Progres.choices %}
-                                        <option value="{{ choice.0 }}" {% if choice.0 == current_ticket.progress %}selected{% endif %}>{{ choice.1 }}</option>
-                                    {% endfor %}
-                                </select>
-                                {% else %}
-                                <p class="fw-light">{{ current_ticket.progress }}</p>
-                                {% endif %}
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary mt-2" name="save-ticket" value="true">Сохранить</button>
-                    </form>
-                    {% else %}
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Исполнитель:</h5>
-                            <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{ current_ticket.technician }}{% endif %}</p>
-                        </div>
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Статус заявки:</h5>
-                            <p class="fw-light">{{ current_ticket.progress }}</p>
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    <p><br></p>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h5 class="fw-bold">Дата изменения:</h5>
-                            <p class="fw-light">{{ current_ticket.published }}</p>
-                        </div>
-                        {% if can_change_ticket_status %}
-                            {% if current_ticket.status == "закрыта" %}
-                            <div class="col-md-6">
-                                <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
-                                    {% csrf_token %}
-                                    <div class="form-check ms-5 d-flex align-items-center gap-2">
-                                        <input class="form-check-input ticket-status-check" type="checkbox" id="open-check-{{ current_ticket.id }}">
-                                        <button type="submit" class="btn btn-success ticket-status-btn" name="open-ticket" disabled>Открыть заявку</button>
                                     </div>
-                                </form>
-                            </div>
+
+                                    <div class="col-md-6">
+                                        <h5 class="fw-bold">Статус заявки:</h5>
+                                        {% if can_edit_progress %}
+                                        <select class="form-select" name="progress">
+                                            {% for choice in current_ticket.Progres.choices %}
+                                                <option value="{{ choice.0 }}" {% if choice.0 == current_ticket.progress %}selected{% endif %}>{{ choice.1 }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        {% else %}
+                                        <p class="fw-light">{{ current_ticket.progress }}</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary mt-2" name="save-ticket" value="true">Сохранить</button>
+                            </form>
                             {% else %}
-                            <div class="col-md-6">
-                                <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
-                                    {% csrf_token %}
-                                    <div class="form-check ms-5 d-flex align-items-center gap-2">
-                                        <input class="form-check-input ticket-status-check" type="checkbox" id="close-check-{{ current_ticket.id }}">
-                                        <button type="submit" class="btn btn-outline-danger ticket-status-btn" name="close-ticket" disabled>Закрыть заявку</button>
-                                    </div>
-                                </form>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <h5 class="fw-bold">Исполнитель:</h5>
+                                    <p class="fw-light">{% if current_ticket.technician.profile %}{{ current_ticket.technician.profile }}{% else %}{{ current_ticket.technician }}{% endif %}</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5 class="fw-bold">Статус заявки:</h5>
+                                    <p class="fw-light">{{ current_ticket.progress }}</p>
+                                </div>
                             </div>
                             {% endif %}
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="tab-pane fade" id="chat-tab-pane" role="tabpanel" aria-labelledby="chat-tab" tabindex="0">
-            {% for message in current_ticket.chat %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <div class="font-weight-bold">{{ message.author }}</div>
-                        <div class="text-muted">{{ message.datetime }}</div>
-                    </div>
-                    <div class="card-body text-start">
-                        <div>{{ message.message }}</div>
-                        {% if message.document_name %}
-                        <div class="chat-document">
-                            <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                                <div class="document-main">
-                                    <img class="document-icon" src="{% static message.document_name|document_icon %}" alt="">
-                                    <div>
-                                        <div class="fw-semibold">{{ message.document_name }}</div>
-                                        {% if message.document_deleted %}
-                                        <span class="badge text-bg-secondary mt-2">Документ удален</span>
-                                        {% else %}
-                                        <span class="badge text-bg-light mt-2">Новый файл</span>
-                                        {% endif %}
-                                    </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5 class="fw-bold">Дата изменения:</h5>
+                                    <p class="fw-light">{{ current_ticket.published }}</p>
                                 </div>
-                                {% if not message.document_deleted %}
-                                    {% if message.document_id %}
-                                    <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' message.document_id %}">Открыть документ</a>
-                                    {% elif message.document_url %}
-                                    <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}">Открыть документ</a>
+                                {% if can_change_ticket_status %}
+                                    {% if current_ticket.status == "закрыта" %}
+                                    <div class="col-md-6">
+                                        <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+                                            {% csrf_token %}
+                                            <div class="form-check ms-5 d-flex align-items-center gap-2">
+                                                <input class="form-check-input ticket-status-check" type="checkbox" id="open-check-{{ current_ticket.id }}">
+                                                <button type="submit" class="btn btn-success ticket-status-btn" name="open-ticket" disabled>Открыть заявку</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                    {% else %}
+                                    <div class="col-md-6">
+                                        <form method="POST" action="{% url 'send_message' ticket_id=current_ticket.pk %}">
+                                            {% csrf_token %}
+                                            <div class="form-check ms-5 d-flex align-items-center gap-2">
+                                                <input class="form-check-input ticket-status-check" type="checkbox" id="close-check-{{ current_ticket.id }}">
+                                                <button type="submit" class="btn btn-outline-danger ticket-status-btn" name="close-ticket" disabled>Закрыть заявку</button>
+                                            </div>
+                                        </form>
+                                    </div>
                                     {% endif %}
                                 {% endif %}
                             </div>
                         </div>
-                        {% endif %}
                     </div>
                 </div>
-            {% empty %}
-                <div class="alert alert-light border">Сообщений пока нет.</div>
-            {% endfor %}
-            <form method="post" action="{% url 'send_message' current_ticket.pk %}" enctype="multipart/form-data">
-                {% csrf_token %}
-                <div class="form-group mb-3">
-                    <label for="message_text">Сообщение</label>
-                    <textarea class="form-control" id="message_text" name="message_text" rows="3"></textarea>
-                </div>
-                <div class="form-group mb-3 text-start">
-                    <label for="chat_documents" class="form-label">Документы</label>
-                    <div class="file-picker-row">
-                        <label for="chat_documents" class="btn btn-outline-primary mb-0">Выберите документы</label>
-                        <span id="chat-documents-status" class="file-picker-status">Файлы не выбраны</span>
-                    </div>
-                    <div class="form-text">Максимальный размер одного файла: {{ max_upload_size_mb }} МБ.</div>
-                    <input class="d-none" id="chat_documents" name="chat_documents" type="file" multiple>
-                </div>
-                <button type="submit" class="btn btn-primary">Отправить</button>
-            </form>
-        </div>
-        <div class="tab-pane fade border" id="movement-tab-pane" role="tabpanel" aria-labelledby="movement-tab" tabindex="0">
-            <div class="movement-wrapper">
-                <div class="movement-flow">
-                    {% for event in movement_events %}
-                        <div
-                            class="movement-card"
-                            data-bs-toggle="tooltip"
-                            data-bs-placement="top"
-                            data-bs-title="{{ event.tooltip }}"
-                        >
-                            <p class="movement-title">{{ event.title }}</p>
-                            {% if event.subtitle %}
-                            <p class="movement-subtitle">{{ event.subtitle }}</p>
-                            {% endif %}
-                            {% if event.time %}
-                            <div class="movement-time">{{ event.time }}</div>
-                            {% endif %}
+
+                <div class="tab-pane fade ticket-pane" id="chat-tab-pane" role="tabpanel" aria-labelledby="chat-tab" tabindex="0">
+                    <div class="chat-message-list">
+                    {% for message in current_ticket.chat %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div class="font-weight-bold">{{ message.author }}</div>
+                                <div class="text-muted">{{ message.datetime }}</div>
+                            </div>
+                            <div class="card-body text-start">
+                                <div>{{ message.message }}</div>
+                                {% if message.documents %}
+                                <div class="chat-document">
+                                    <div class="chat-document-list">
+                                        {% for document in message.documents %}
+                                        <div class="document-card">
+                                            <div class="document-main">
+                                                <img class="document-icon" src="{% static document.document_name|document_icon %}" alt="">
+                                                <div class="document-meta">
+                                                    <p class="document-name">{{ document.document_name }}</p>
+                                                    {% if document.document_deleted %}
+                                                    <div><span class="badge text-bg-secondary mt-2">Документ удален</span></div>
+                                                    {% else %}
+                                                    <div><span class="badge text-bg-light mt-2">Новый файл</span></div>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            <div class="document-actions">
+                                                {% if not document.document_deleted and document.document_id %}
+                                                <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.document_id %}">Открыть документ</a>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% elif message.document_name %}
+                                <div class="chat-document">
+                                    <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                                        <div class="document-main">
+                                            <img class="document-icon" src="{% static message.document_name|document_icon %}" alt="">
+                                            <div>
+                                                <div class="fw-semibold">{{ message.document_name }}</div>
+                                                <span class="document-ext">{{ message.document_name|document_extension }}</span>
+                                                {% if message.document_deleted %}
+                                                <div><span class="badge text-bg-secondary mt-2">Документ удален</span></div>
+                                                {% else %}
+                                                <div><span class="badge text-bg-light mt-2">Новый файл</span></div>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        {% if not message.document_deleted %}
+                                            {% if message.document_id %}
+                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' message.document_id %}">Открыть документ</a>
+                                            {% elif message.document_url %}
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}">Открыть документ</a>
+                                            {% endif %}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </div>
                         </div>
-                        {% if not forloop.last %}
-                        <div class="movement-arrow">→</div>
-                        {% endif %}
+                    {% empty %}
+                        <div class="alert alert-light border chat-empty-state mb-0">Сообщений пока нет.</div>
                     {% endfor %}
+                    </div>
+
+                    <form class="chat-compose" method="post" action="{% url 'send_message' current_ticket.pk %}" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="form-group mb-3">
+                            <label for="message_text">Сообщение</label>
+                            <textarea class="form-control" id="message_text" name="message_text" rows="3"></textarea>
+                        </div>
+                        <div class="form-group mb-3 text-start">
+                            <label for="chat_documents" class="form-label">Документы</label>
+                            <div class="form-text mb-3">Максимальный размер одного файла: {{ max_upload_size_mb }} МБ.</div>
+                            {% include "desk/includes/document_upload_widget.html" with input_id="chat_documents" input_name="chat_documents" grid_id="chat-documents-preview-grid" status_id="chat-documents-status" add_label="Добавить документы" %}
+                        </div>
+                        <button type="submit" class="btn btn-primary">Отправить</button>
+                    </form>
+                </div>
+
+                <div class="tab-pane fade border ticket-pane" id="movement-tab-pane" role="tabpanel" aria-labelledby="movement-tab" tabindex="0">
+                    <div class="movement-wrapper">
+                        <div class="movement-flow">
+                            {% for event in movement_events %}
+                                <div
+                                    class="movement-card"
+                                    data-bs-toggle="tooltip"
+                                    data-bs-placement="top"
+                                    data-bs-title="{{ event.tooltip }}"
+                                >
+                                    <p class="movement-title">{{ event.title }}</p>
+                                    {% if event.subtitle %}
+                                    <p class="movement-subtitle">{{ event.subtitle }}</p>
+                                    {% endif %}
+                                    {% if event.time %}
+                                    <div class="movement-time">{{ event.time }}</div>
+                                    {% endif %}
+                                </div>
+                                {% if not forloop.last %}
+                                <div class="movement-arrow">→</div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
 <script>
     const chatDocumentsInput = document.getElementById("chat_documents");
     const chatDocumentsStatus = document.getElementById("chat-documents-status");
+    const chatDocumentsPreviewGrid = document.getElementById("chat-documents-preview-grid");
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
     const statusChecks = document.querySelectorAll(".ticket-status-check");
+    const technicianSearchInput = document.getElementById("ticket-technician-search");
+    const technicianIdInput = document.getElementById("ticket-technician-id");
+    const technicianResults = document.getElementById("ticket-technician-results");
     const maxFileSizeBytes = {{ max_upload_size_mb }} * 1024 * 1024;
+    const techniciansData = [
+        {% for user in users %}
+        {
+            id: "{{ user.id|escapejs }}",
+            name: "{% if user.profile %}{{ user.profile|escapejs }}{% else %}{{ user.username|escapejs }}{% endif %}",
+            username: "{{ user.username|escapejs }}",
+        },
+        {% endfor %}
+    ];
+    const documentIconMap = {
+        doc: "{% static 'images/doc_icons/icon-docx.png' %}",
+        docx: "{% static 'images/doc_icons/icon-docx.png' %}",
+        pdf: "{% static 'images/doc_icons/icon-pdf.png' %}",
+        xls: "{% static 'images/doc_icons/icon-xlsx.png' %}",
+        xlsx: "{% static 'images/doc_icons/icon-xlsx.png' %}",
+        png: "{% static 'images/doc_icons/icon-png.png' %}",
+        jpg: "{% static 'images/doc_icons/icon-jpg.png' %}",
+        jpeg: "{% static 'images/doc_icons/icon-jpg.png' %}",
+        zip: "{% static 'images/doc_icons/zip.png' %}",
+        rar: "{% static 'images/doc_icons/zip.png' %}",
+        "7z": "{% static 'images/doc_icons/zip.png' %}",
+        ppt: "{% static 'images/doc_icons/icon-pptx.png' %}",
+        pptx: "{% static 'images/doc_icons/icon-pptx.png' %}",
+        default: "{% static 'images/doc_icons/basic_file.png' %}",
+    };
+    let activeTechnicianIndex = -1;
+    let selectedChatDocuments = [];
+
+    function getDocumentExtension(filename) {
+        const parts = (filename || "").split(".");
+        return parts.length > 1 ? parts.pop().toLowerCase() : "";
+    }
+
+    function getDocumentIcon(filename) {
+        const extension = getDocumentExtension(filename);
+        return documentIconMap[extension] || documentIconMap.default;
+    }
+
+    function buildFileSignature(file) {
+        return [file.name, file.size, file.lastModified].join("::");
+    }
+
+    function mergeSelectedFiles(existingFiles, incomingFiles) {
+        const mergedFiles = [...existingFiles];
+        const knownSignatures = new Set(existingFiles.map((file) => buildFileSignature(file)));
+
+        incomingFiles.forEach((file) => {
+            const signature = buildFileSignature(file);
+            if (!knownSignatures.has(signature)) {
+                mergedFiles.push(file);
+                knownSignatures.add(signature);
+            }
+        });
+
+        return mergedFiles;
+    }
+
+    function syncDocumentsInput(input, files) {
+        const transfer = new DataTransfer();
+        files.forEach((file) => transfer.items.add(file));
+        input.files = transfer.files;
+    }
+
+    function lockPreviewHover(grid) {
+        if (!grid) {
+            return;
+        }
+
+        grid.classList.add("upload-grid-hover-locked");
+    }
+
+    function unlockPreviewHover(grid) {
+        if (!grid) {
+            return;
+        }
+
+        grid.classList.remove("upload-grid-hover-locked");
+    }
+
+    function updateUploadPreview(input, grid, statusNode) {
+        if (!input || !grid || !statusNode) {
+            return;
+        }
+
+        const addCard = grid.querySelector(".upload-add-card");
+        grid.innerHTML = "";
+
+        Array.from(selectedChatDocuments).forEach((file, index) => {
+            const card = document.createElement("div");
+            card.className = "upload-card";
+            card.innerHTML = `
+                <button type="button" class="upload-card-remove" aria-label="Удалить файл">&times;</button>
+                <img class="upload-card-icon" src="${getDocumentIcon(file.name)}" alt="">
+                <div class="upload-card-name">${file.name}</div>
+            `;
+
+            card.querySelector(".upload-card-remove").addEventListener("click", () => {
+                selectedChatDocuments.splice(index, 1);
+                syncDocumentsInput(input, selectedChatDocuments);
+                updateUploadPreview(input, grid, statusNode);
+            });
+
+            grid.appendChild(card);
+        });
+
+        if (addCard) {
+            grid.appendChild(addCard);
+        }
+
+        statusNode.textContent = selectedChatDocuments.length === 0 ? "Файлы не выбраны" : "";
+        lockPreviewHover(grid);
+    }
+
+    function validateDocuments(files) {
+        const oversized = Array.from(files).find(file => file.size > maxFileSizeBytes);
+        if (oversized) {
+            alert(`Файл "${oversized.name}" превышает допустимый размер {{ max_upload_size_mb }} МБ.`);
+            return false;
+        }
+
+        return true;
+    }
+
+    function getTechnicianOptions() {
+        if (!technicianResults) {
+            return [];
+        }
+
+        return Array.from(technicianResults.querySelectorAll(".executor-search-option"));
+    }
+
+    function setActiveTechnician(index) {
+        const options = getTechnicianOptions();
+        activeTechnicianIndex = index;
+
+        options.forEach((option, optionIndex) => {
+            option.classList.toggle("is-active", optionIndex === activeTechnicianIndex);
+        });
+
+        if (activeTechnicianIndex >= 0 && options[activeTechnicianIndex]) {
+            options[activeTechnicianIndex].scrollIntoView({ block: "nearest" });
+        }
+    }
+
+    function closeTechnicianResults() {
+        if (!technicianResults) {
+            return;
+        }
+
+        technicianResults.classList.remove("is-open");
+        technicianResults.innerHTML = "";
+        activeTechnicianIndex = -1;
+    }
+
+    function selectTechnician(user) {
+        if (!technicianSearchInput || !technicianIdInput) {
+            return;
+        }
+
+        technicianSearchInput.value = user.name;
+        technicianIdInput.value = user.id;
+        closeTechnicianResults();
+    }
+
+    function renderTechnicianResults(query) {
+        if (!technicianResults) {
+            return;
+        }
+
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery) {
+            closeTechnicianResults();
+            return;
+        }
+
+        const filteredUsers = techniciansData
+            .filter((user) => (
+                user.name.toLowerCase().includes(normalizedQuery) ||
+                user.username.toLowerCase().includes(normalizedQuery)
+            ))
+            .slice(0, 8);
+
+        if (filteredUsers.length === 0) {
+            closeTechnicianResults();
+            return;
+        }
+
+        technicianResults.innerHTML = "";
+        filteredUsers.forEach((user) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.className = "executor-search-option";
+            option.innerHTML = `
+                <div class="executor-search-name">${user.name}</div>
+                <div class="executor-search-meta">${user.username}</div>
+            `;
+            option.addEventListener("click", () => selectTechnician(user));
+            technicianResults.appendChild(option);
+        });
+
+        technicianResults.classList.add("is-open");
+        setActiveTechnician(filteredUsers.length > 0 ? 0 : -1);
+    }
+
+    function resolveTypedTechnician() {
+        if (!technicianSearchInput || !technicianIdInput) {
+            return;
+        }
+
+        const normalizedValue = technicianSearchInput.value.trim().toLowerCase();
+        const matchedUser = techniciansData.find((user) => (
+            user.name.toLowerCase() === normalizedValue ||
+            user.username.toLowerCase() === normalizedValue
+        ));
+
+        if (matchedUser) {
+            technicianIdInput.value = matchedUser.id;
+            technicianSearchInput.value = matchedUser.name;
+            return;
+        }
+
+        if (!normalizedValue) {
+            technicianIdInput.value = "";
+            return;
+        }
+
+        technicianIdInput.value = "";
+    }
 
     statusChecks.forEach((checkbox) => {
         const button = checkbox.closest("form").querySelector(".ticket-status-btn");
@@ -382,23 +959,73 @@
         });
     });
 
-    if (chatDocumentsInput && chatDocumentsStatus) {
+    if (chatDocumentsInput && chatDocumentsStatus && chatDocumentsPreviewGrid) {
+        chatDocumentsPreviewGrid.addEventListener("pointermove", () => unlockPreviewHover(chatDocumentsPreviewGrid), { passive: true });
+        chatDocumentsPreviewGrid.addEventListener("pointerleave", () => unlockPreviewHover(chatDocumentsPreviewGrid), { passive: true });
         chatDocumentsInput.addEventListener("change", function() {
-            if (!this.files || this.files.length === 0) {
-                chatDocumentsStatus.textContent = "Файлы не выбраны";
-                return;
-            }
-
-            const oversized = Array.from(this.files).find(file => file.size > maxFileSizeBytes);
-            if (oversized) {
-                alert(`Файл "${oversized.name}" превышает допустимый размер {{ max_upload_size_mb }} МБ.`);
+            const mergedFiles = mergeSelectedFiles(selectedChatDocuments, Array.from(this.files || []));
+            if (!validateDocuments(mergedFiles)) {
                 this.value = "";
-                chatDocumentsStatus.textContent = "Файлы не выбраны";
+                syncDocumentsInput(chatDocumentsInput, selectedChatDocuments);
+                return;
+            }
+            selectedChatDocuments = mergedFiles;
+            syncDocumentsInput(chatDocumentsInput, selectedChatDocuments);
+            updateUploadPreview(chatDocumentsInput, chatDocumentsPreviewGrid, chatDocumentsStatus);
+        });
+        updateUploadPreview(chatDocumentsInput, chatDocumentsPreviewGrid, chatDocumentsStatus);
+    }
+
+    if (technicianSearchInput && technicianIdInput && technicianResults) {
+        technicianSearchInput.addEventListener("input", () => {
+            technicianIdInput.value = "";
+            renderTechnicianResults(technicianSearchInput.value);
+        });
+
+        technicianSearchInput.addEventListener("focus", () => {
+            if (technicianSearchInput.value.trim()) {
+                renderTechnicianResults(technicianSearchInput.value);
+            }
+        });
+
+        technicianSearchInput.addEventListener("keydown", (event) => {
+            const options = getTechnicianOptions();
+            if (!technicianResults.classList.contains("is-open") || options.length === 0) {
                 return;
             }
 
-            const names = Array.from(this.files).map(file => file.name);
-            chatDocumentsStatus.textContent = names.join(", ");
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                const nextIndex = activeTechnicianIndex < options.length - 1 ? activeTechnicianIndex + 1 : 0;
+                setActiveTechnician(nextIndex);
+                return;
+            }
+
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                const previousIndex = activeTechnicianIndex > 0 ? activeTechnicianIndex - 1 : options.length - 1;
+                setActiveTechnician(previousIndex);
+                return;
+            }
+
+            if (event.key === "Enter" && activeTechnicianIndex >= 0) {
+                event.preventDefault();
+                options[activeTechnicianIndex].click();
+            }
+        });
+
+        technicianSearchInput.addEventListener("blur", () => {
+            window.setTimeout(() => {
+                resolveTypedTechnician();
+                closeTechnicianResults();
+            }, 120);
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!technicianResults.contains(event.target) && event.target !== technicianSearchInput) {
+                resolveTypedTechnician();
+                closeTechnicianResults();
+            }
         });
     }
 

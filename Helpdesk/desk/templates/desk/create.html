@@ -1,149 +1,595 @@
 {% extends "layout/basic.html" %}
+{% load static %}
+{% load custom_filters %}
 
 {% block title %}Добавление заявки{% endblock %}
 
 {% block content %}
 <style>
-    .file-picker-row {
+    .ticket-create-shell {
+        max-width: 58rem;
+        margin: 0 auto;
+        padding: 0 1rem 2rem;
+    }
+
+    .ticket-create-card {
+        border: 1px solid #dee2e6;
+        border-radius: 1.1rem;
+        background: #fff;
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
+        padding: 1.5rem;
+    }
+
+    .ticket-create-grid {
+        display: grid;
+        align-items: start;
+        gap: 1rem 1.25rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ticket-create-grid .full-width {
+        grid-column: 1 / -1;
+    }
+
+    .executor-search-wrap {
+        position: relative;
+    }
+
+    .executor-search-results {
+        position: absolute;
+        top: calc(100% + 0.25rem);
+        left: 0;
+        right: 0;
+        z-index: 20;
+        display: none;
+        max-height: 260px;
+        overflow-y: auto;
+        padding: 0.35rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.75rem;
+        background: #fff;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .executor-search-results.is-open {
+        display: block;
+    }
+
+    .executor-search-option {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.6rem;
+    }
+
+    .executor-search-option:hover,
+    .executor-search-option.is-active,
+    .executor-search-option:focus {
+        background: #f1f3f5;
+        outline: none;
+    }
+
+    .executor-search-name {
+        font-weight: 600;
+        color: #212529;
+    }
+
+    .executor-search-meta {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .upload-widget {
+        padding: 1rem;
+        border: 1px dashed #cfd8e3;
+        border-radius: 1.1rem;
+        background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
+    }
+
+    .upload-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
+        max-height: 14rem;
+        overflow-y: auto;
+        padding-right: 0.2rem;
+        align-content: flex-start;
+    }
+
+    .upload-card,
+    .upload-add-card {
+        flex: 0 0 190px;
+        width: 190px;
+        height: 138px;
+        padding: 1rem 0.95rem;
+        border: 1px solid #d6dce5;
+        border-radius: 1.1rem;
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
+    }
+
+    .upload-card {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .upload-card-remove {
+        position: absolute;
+        inset: 0;
+        border: 0;
+        border-radius: inherit;
+        background: rgba(220, 53, 69, 0.92);
+        color: #fff;
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
+        justify-content: center;
+        font-size: 2.2rem;
+        font-weight: 300;
+        line-height: 1;
+        opacity: 0;
+        transform: scale(0.96);
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .upload-card:hover .upload-card-remove,
+    .upload-card:focus-within .upload-card-remove {
+        opacity: 1;
+        transform: scale(1);
+        pointer-events: auto;
+    }
+
+    .upload-grid.upload-grid-hover-locked .upload-card:hover .upload-card-remove,
+    .upload-grid.upload-grid-hover-locked .upload-card:focus-within .upload-card-remove {
+        opacity: 0;
+        transform: scale(0.96);
+        pointer-events: none;
+    }
+
+    .upload-card-icon {
+        width: 3rem;
+        height: 3rem;
+        object-fit: contain;
         margin-bottom: 0.75rem;
     }
 
-    .file-picker-status {
-        color: #6c757d;
+    .upload-card-name {
+        font-weight: 600;
+        color: #212529;
         font-size: 0.95rem;
+        line-height: 1.3;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .upload-add-card {
+        cursor: pointer;
+        border-style: dashed;
+        color: #0d6efd;
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .upload-add-card:hover {
+        background: #eef5ff;
+        border-color: #0d6efd;
+    }
+
+    .upload-add-plus {
+        font-size: 2.1rem;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+    }
+
+    .upload-empty-text {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-top: 0.85rem;
+    }
+
+    @media (max-width: 767.98px) {
+        .upload-grid {
+            max-height: none;
+            overflow-y: visible;
+        }
+
+        .ticket-create-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
-<h2 class="ms-2">Добавление заявки</h2>
-<div class="container-fluid">
-    <form method="post" enctype="multipart/form-data">
-        <div class="mb-3">
+<div class="ticket-create-shell">
+    <h2 class="text-center mb-4">Добавление заявки</h2>
+    <div class="ticket-create-card">
+        <form method="post" enctype="multipart/form-data" id="ticket-create-form">
             {% csrf_token %}
-            {{ form.as_p }}
-            <div class="alert alert-light border">
-                Максимальный размер одного файла: {{ max_upload_size_mb }} МБ.
+
+            {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}
+                <div>{{ error }}</div>
+                {% endfor %}
             </div>
-            <div id="files-container"></div>
-            <button type="button" class="btn btn-outline-secondary" onclick="addFileField()">Добавить файл</button>
-            <p class="mt-3"><input type="submit" value="Добавить заявку"></p>
-        </div>
-    </form>
+            {% endif %}
+
+            <div class="ticket-create-grid">
+                <div class="full-width">
+                    <label class="form-label fw-semibold" for="{{ form.title.id_for_label }}">Тема</label>
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                    <div class="text-danger mt-1">{{ form.title.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label class="form-label fw-semibold" for="{{ form.criticalness.id_for_label }}">Критичность</label>
+                    {{ form.criticalness }}
+                    {% if form.criticalness.errors %}
+                    <div class="text-danger mt-1">{{ form.criticalness.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label class="form-label fw-semibold" for="create-technician-search">Исполнитель</label>
+                    <input type="hidden" name="technician" id="create-technician-id" value="{{ selected_technician_id }}">
+                    <div class="executor-search-wrap">
+                        <input
+                            type="text"
+                            id="create-technician-search"
+                            class="form-control"
+                            autocomplete="off"
+                            placeholder="Начните вводить исполнителя"
+                            value="{{ selected_technician_name }}"
+                        >
+                        <div id="create-technician-results" class="executor-search-results"></div>
+                    </div>
+                    {% if form.technician.errors %}
+                    <div class="text-danger mt-1">{{ form.technician.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="full-width">
+                    <label class="form-label fw-semibold" for="{{ form.content.id_for_label }}">Содержание</label>
+                    {{ form.content }}
+                    {% if form.content.errors %}
+                    <div class="text-danger mt-1">{{ form.content.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="full-width">
+                    <div class="alert alert-light border mb-3">
+                        Максимальный размер одного файла: {{ max_upload_size_mb }} МБ.
+                    </div>
+                    {% include "desk/includes/document_upload_widget.html" with input_id="documents-input" input_name="documents" grid_id="documents-preview-grid" status_id="documents-empty-text" add_label="Добавить документы" %}
+                </div>
+
+                <div class="full-width d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary px-4">Добавить заявку</button>
+                </div>
+            </div>
+        </form>
+    </div>
 </div>
 
 <script>
-    let fileFieldIndex = 0;
     const maxFileSizeBytes = {{ max_upload_size_mb }} * 1024 * 1024;
+    const technicianSearchInput = document.getElementById("create-technician-search");
+    const technicianIdInput = document.getElementById("create-technician-id");
+    const technicianResults = document.getElementById("create-technician-results");
+    const documentsInput = document.getElementById("documents-input");
+    const documentsPreviewGrid = document.getElementById("documents-preview-grid");
+    const documentsEmptyText = document.getElementById("documents-empty-text");
+    const techniciansData = [
+        {% for user in technician_users %}
+        {
+            id: "{{ user.id|escapejs }}",
+            name: "{% if user.profile %}{{ user.profile|escapejs }}{% else %}{{ user.username|escapejs }}{% endif %}",
+            username: "{{ user.username|escapejs }}",
+        },
+        {% endfor %}
+    ];
+    const documentIconMap = {
+        doc: "{% static 'images/doc_icons/icon-docx.png' %}",
+        docx: "{% static 'images/doc_icons/icon-docx.png' %}",
+        pdf: "{% static 'images/doc_icons/icon-pdf.png' %}",
+        xls: "{% static 'images/doc_icons/icon-xlsx.png' %}",
+        xlsx: "{% static 'images/doc_icons/icon-xlsx.png' %}",
+        png: "{% static 'images/doc_icons/icon-png.png' %}",
+        jpg: "{% static 'images/doc_icons/icon-jpg.png' %}",
+        jpeg: "{% static 'images/doc_icons/icon-jpg.png' %}",
+        zip: "{% static 'images/doc_icons/zip.png' %}",
+        rar: "{% static 'images/doc_icons/zip.png' %}",
+        "7z": "{% static 'images/doc_icons/zip.png' %}",
+        ppt: "{% static 'images/doc_icons/icon-pptx.png' %}",
+        pptx: "{% static 'images/doc_icons/icon-pptx.png' %}",
+        default: "{% static 'images/doc_icons/basic_file.png' %}",
+    };
+    let activeTechnicianIndex = -1;
+    let selectedDocuments = [];
 
-    function updateFileStatus(fileInput, statusNode) {
-        if (!fileInput.files || fileInput.files.length === 0) {
-            statusNode.textContent = "Файлы не выбраны";
+    function getDocumentExtension(filename) {
+        const parts = (filename || "").split(".");
+        return parts.length > 1 ? parts.pop().toLowerCase() : "";
+    }
+
+    function getDocumentIcon(filename) {
+        const extension = getDocumentExtension(filename);
+        return documentIconMap[extension] || documentIconMap.default;
+    }
+
+    function buildFileSignature(file) {
+        return [file.name, file.size, file.lastModified].join("::");
+    }
+
+    function mergeSelectedFiles(existingFiles, incomingFiles) {
+        const mergedFiles = [...existingFiles];
+        const knownSignatures = new Set(existingFiles.map((file) => buildFileSignature(file)));
+
+        incomingFiles.forEach((file) => {
+            const signature = buildFileSignature(file);
+            if (!knownSignatures.has(signature)) {
+                mergedFiles.push(file);
+                knownSignatures.add(signature);
+            }
+        });
+
+        return mergedFiles;
+    }
+
+    function syncDocumentsInput(files) {
+        if (!documentsInput) {
             return;
         }
 
-        const names = Array.from(fileInput.files).map(file => file.name);
-        statusNode.textContent = names.join(", ");
+        const transfer = new DataTransfer();
+        files.forEach((file) => transfer.items.add(file));
+        documentsInput.files = transfer.files;
     }
 
-    function validateFileSize(fileInput, statusNode) {
-        const file = fileInput.files[0];
-        if (!file) {
-            return true;
+    function lockPreviewHover(grid) {
+        if (!grid) {
+            return;
         }
 
-        if (file.size > maxFileSizeBytes) {
-            alert(`Файл "${file.name}" превышает допустимый размер {{ max_upload_size_mb }} МБ.`);
-            fileInput.value = "";
-            statusNode.textContent = "Файлы не выбраны";
+        grid.classList.add("upload-grid-hover-locked");
+    }
+
+    function unlockPreviewHover(grid) {
+        if (!grid) {
+            return;
+        }
+
+        grid.classList.remove("upload-grid-hover-locked");
+    }
+
+    function updateDocumentsPreview() {
+        if (!documentsInput || !documentsPreviewGrid || !documentsEmptyText) {
+            return;
+        }
+
+        const addCard = documentsPreviewGrid.querySelector(".upload-add-card");
+        documentsPreviewGrid.innerHTML = "";
+
+        Array.from(selectedDocuments).forEach((file, index) => {
+            const card = document.createElement("div");
+            card.className = "upload-card";
+            card.innerHTML = `
+                <button type="button" class="upload-card-remove" aria-label="Удалить файл">&times;</button>
+                <img class="upload-card-icon" src="${getDocumentIcon(file.name)}" alt="">
+                <div class="upload-card-name">${file.name}</div>
+            `;
+
+            card.querySelector(".upload-card-remove").addEventListener("click", () => {
+                selectedDocuments.splice(index, 1);
+                syncDocumentsInput(selectedDocuments);
+                updateDocumentsPreview();
+            });
+
+            documentsPreviewGrid.appendChild(card);
+        });
+
+        if (addCard) {
+            documentsPreviewGrid.appendChild(addCard);
+        }
+
+        documentsEmptyText.textContent = selectedDocuments.length === 0 ? "Файлы не выбраны" : "";
+        lockPreviewHover(documentsPreviewGrid);
+    }
+
+    function validateDocuments(files) {
+        const oversized = Array.from(files).find((file) => file.size > maxFileSizeBytes);
+        if (oversized) {
+            alert(`Файл "${oversized.name}" превышает допустимый размер {{ max_upload_size_mb }} МБ.`);
             return false;
         }
 
         return true;
     }
 
-    function addFileField() {
-        const currentIndex = fileFieldIndex++;
-        const fileInputId = `documents-${currentIndex}`;
+    function getTechnicianOptions() {
+        if (!technicianResults) {
+            return [];
+        }
 
-        const fileInput = document.createElement("input");
-        fileInput.type = "file";
-        fileInput.name = "documents";
-        fileInput.id = fileInputId;
-        fileInput.className = "d-none";
-        fileInput.addEventListener("change", function(event) {
-            const fileContainer = event.target.parentNode;
-            const fileNameInput = fileContainer.querySelector('input[type="text"]');
-            const fileStatus = fileContainer.querySelector(".file-picker-status");
-
-            if (!validateFileSize(event.target, fileStatus)) {
-                fileNameInput.value = "";
-                return;
-            }
-
-            if (event.target.files.length > 0) {
-                fileNameInput.value = event.target.files[0].name;
-            } else {
-                fileNameInput.value = "";
-            }
-
-            updateFileStatus(event.target, fileStatus);
-        });
-
-        const fileTrigger = document.createElement("label");
-        fileTrigger.htmlFor = fileInputId;
-        fileTrigger.className = "btn btn-outline-primary mb-0";
-        fileTrigger.textContent = "Выберите документы";
-
-        const fileStatus = document.createElement("span");
-        fileStatus.className = "file-picker-status";
-        fileStatus.textContent = "Файлы не выбраны";
-
-        const pickerRow = document.createElement("div");
-        pickerRow.className = "file-picker-row";
-        pickerRow.appendChild(fileTrigger);
-        pickerRow.appendChild(fileStatus);
-
-        const fileNameInput = document.createElement("input");
-        fileNameInput.type = "text";
-        fileNameInput.name = "document_names";
-        fileNameInput.placeholder = "Имя файла";
-        fileNameInput.className = "form-control";
-        fileNameInput.addEventListener("input", handleFileNameChange);
-
-        const fileContainer = document.createElement("div");
-        fileContainer.classList.add("file-container", "mb-3");
-        fileContainer.appendChild(pickerRow);
-        fileContainer.appendChild(fileNameInput);
-        fileContainer.appendChild(fileInput);
-
-        const filesContainer = document.getElementById("files-container");
-        filesContainer.appendChild(fileContainer);
+        return Array.from(technicianResults.querySelectorAll(".executor-search-option"));
     }
 
-    function handleFileNameChange(event) {
-        const fileNameInput = event.target;
-        const fileContainer = fileNameInput.parentNode;
-        const fileInput = fileContainer.querySelector('input[type="file"]');
-        const file = fileInput.files[0];
+    function setActiveTechnician(index) {
+        const options = getTechnicianOptions();
+        activeTechnicianIndex = index;
 
-        if (!file) {
+        options.forEach((option, optionIndex) => {
+            option.classList.toggle("is-active", optionIndex === activeTechnicianIndex);
+        });
+
+        if (activeTechnicianIndex >= 0 && options[activeTechnicianIndex]) {
+            options[activeTechnicianIndex].scrollIntoView({ block: "nearest" });
+        }
+    }
+
+    function closeTechnicianResults() {
+        if (!technicianResults) {
             return;
         }
 
-        const newFile = new File([file], fileNameInput.value, { type: file.type });
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(newFile);
-        fileInput.files = dataTransfer.files;
-
-        const fileStatus = fileContainer.querySelector(".file-picker-status");
-        updateFileStatus(fileInput, fileStatus);
+        technicianResults.classList.remove("is-open");
+        technicianResults.innerHTML = "";
+        activeTechnicianIndex = -1;
     }
 
-    window.addEventListener("load", () => {
-        addFileField();
-    });
+    function selectTechnician(user) {
+        if (!technicianSearchInput || !technicianIdInput) {
+            return;
+        }
+
+        technicianSearchInput.value = user.name;
+        technicianIdInput.value = user.id;
+        closeTechnicianResults();
+    }
+
+    function renderTechnicianResults(query) {
+        if (!technicianResults) {
+            return;
+        }
+
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery) {
+            closeTechnicianResults();
+            return;
+        }
+
+        const filteredUsers = techniciansData
+            .filter((user) => (
+                user.name.toLowerCase().includes(normalizedQuery) ||
+                user.username.toLowerCase().includes(normalizedQuery)
+            ))
+            .slice(0, 8);
+
+        if (filteredUsers.length === 0) {
+            closeTechnicianResults();
+            return;
+        }
+
+        technicianResults.innerHTML = "";
+        filteredUsers.forEach((user) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.className = "executor-search-option";
+            option.innerHTML = `
+                <div class="executor-search-name">${user.name}</div>
+                <div class="executor-search-meta">${user.username}</div>
+            `;
+            option.addEventListener("click", () => selectTechnician(user));
+            technicianResults.appendChild(option);
+        });
+
+        technicianResults.classList.add("is-open");
+        setActiveTechnician(filteredUsers.length > 0 ? 0 : -1);
+    }
+
+    function resolveTypedTechnician() {
+        if (!technicianSearchInput || !technicianIdInput) {
+            return;
+        }
+
+        const normalizedValue = technicianSearchInput.value.trim().toLowerCase();
+        const matchedUser = techniciansData.find((user) => (
+            user.name.toLowerCase() === normalizedValue ||
+            user.username.toLowerCase() === normalizedValue
+        ));
+
+        if (matchedUser) {
+            technicianIdInput.value = matchedUser.id;
+            technicianSearchInput.value = matchedUser.name;
+            return;
+        }
+
+        if (!normalizedValue) {
+            technicianIdInput.value = "";
+            return;
+        }
+
+        technicianIdInput.value = "";
+    }
+
+    if (documentsInput) {
+        documentsPreviewGrid?.addEventListener("pointermove", () => unlockPreviewHover(documentsPreviewGrid), { passive: true });
+        documentsPreviewGrid?.addEventListener("pointerleave", () => unlockPreviewHover(documentsPreviewGrid), { passive: true });
+        documentsInput.addEventListener("change", () => {
+            const mergedFiles = mergeSelectedFiles(selectedDocuments, Array.from(documentsInput.files || []));
+            if (!validateDocuments(mergedFiles)) {
+                documentsInput.value = "";
+                syncDocumentsInput(selectedDocuments);
+                return;
+            }
+            selectedDocuments = mergedFiles;
+            syncDocumentsInput(selectedDocuments);
+            updateDocumentsPreview();
+        });
+        updateDocumentsPreview();
+    }
+
+    if (technicianSearchInput && technicianIdInput && technicianResults) {
+        technicianSearchInput.addEventListener("input", () => {
+            technicianIdInput.value = "";
+            renderTechnicianResults(technicianSearchInput.value);
+        });
+
+        technicianSearchInput.addEventListener("focus", () => {
+            if (technicianSearchInput.value.trim()) {
+                renderTechnicianResults(technicianSearchInput.value);
+            }
+        });
+
+        technicianSearchInput.addEventListener("keydown", (event) => {
+            const options = getTechnicianOptions();
+            if (!technicianResults.classList.contains("is-open") || options.length === 0) {
+                return;
+            }
+
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                const nextIndex = activeTechnicianIndex < options.length - 1 ? activeTechnicianIndex + 1 : 0;
+                setActiveTechnician(nextIndex);
+                return;
+            }
+
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                const previousIndex = activeTechnicianIndex > 0 ? activeTechnicianIndex - 1 : options.length - 1;
+                setActiveTechnician(previousIndex);
+                return;
+            }
+
+            if (event.key === "Enter" && activeTechnicianIndex >= 0) {
+                event.preventDefault();
+                options[activeTechnicianIndex].click();
+            }
+        });
+
+        technicianSearchInput.addEventListener("blur", () => {
+            window.setTimeout(() => {
+                resolveTypedTechnician();
+                closeTechnicianResults();
+            }, 120);
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!technicianResults.contains(event.target) && event.target !== technicianSearchInput) {
+                resolveTypedTechnician();
+                closeTechnicianResults();
+            }
+        });
+    }
 </script>
 {% endblock %}

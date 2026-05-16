@@ -1,0 +1,10 @@
+<div class="upload-widget">
+    <input class="d-none" id="{{ input_id }}" name="{{ input_name }}" type="file" multiple>
+    <div class="upload-grid" id="{{ grid_id }}">
+        <label for="{{ input_id }}" class="upload-add-card mb-0">
+            <div class="upload-add-plus">+</div>
+            <div>{{ add_label|default:"Добавить документы" }}</div>
+        </label>
+    </div>
+    <div id="{{ status_id }}" class="upload-empty-text">Файлы не выбраны</div>
+</div>

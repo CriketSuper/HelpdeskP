@@ -10,6 +10,32 @@
         <link rel="stylesheet" href="{% static './css/bootstrap.css' %}">
         <script src="{% static './js/bootstrap.bundle.js' %}"></script>
         <style>
+            html {
+                scrollbar-gutter: stable;
+            }
+
+            body {
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+                background: #fff;
+            }
+
+            .page-content {
+                flex: 1 0 auto;
+                padding-bottom: 0;
+            }
+
+            .app-footer {
+                margin-top: 0.35rem;
+                padding: 0.85rem 0 1rem;
+                border-top: 1px solid #e9ecef;
+                color: #6c757d;
+                font-size: 0.92rem;
+                text-align: center;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #fbfcfe 100%);
+            }
+
             .header-menu-btn {
                 width: 3.35rem;
                 height: 3.35rem;
@@ -46,6 +72,10 @@
                 align-content: start;
             }
 
+            .profile-nav-mobile {
+                display: none;
+            }
+
             .toast-stack {
                 position: fixed;
                 right: 1rem;
@@ -69,6 +99,39 @@
 
             .notification-toast .toast-body {
                 white-space: pre-line;
+            }
+
+            @media (max-width: 991.98px) {
+                .navbar > .container-fluid {
+                    align-items: center;
+                }
+
+                .navbar-brand {
+                    margin-right: auto;
+                }
+
+                .navbar-toggler {
+                    order: 3;
+                    margin-left: 0.5rem;
+                }
+
+                .filter-toolbar {
+                    order: 2;
+                    margin-left: auto;
+                }
+
+                .navbar-collapse {
+                    order: 4;
+                    width: 100%;
+                }
+
+                .header-menu-btn {
+                    display: none !important;
+                }
+
+                .profile-nav-mobile {
+                    display: block;
+                }
             }
         </style>
     </head>
@@ -94,6 +157,19 @@
                         <a class="nav-link active" aria-current="page" href="{% url 'index' %}">Заявки</a>
                         <a class="nav-link active" href="{% url 'add' %}">Добавить</a>
                     </div>
+                    {% if request.user.is_authenticated %}
+                    <div class="profile-nav-mobile mt-2">
+                        <button
+                            class="nav-link active btn btn-link px-0 text-start"
+                            type="button"
+                            data-bs-toggle="offcanvas"
+                            data-bs-target="#profileMenu"
+                            aria-controls="profileMenu"
+                        >
+                            Профиль
+                        </button>
+                    </div>
+                    {% endif %}
                 </div>
                 {% block filter %}
                 {% endblock %}
@@ -133,10 +209,16 @@
             {% endif %}
         </div>
 
-        <section>
+        <section class="page-content">
             {% block content %}
             {% endblock %}
         </section>
+
+        <footer class="app-footer">
+            <div class="container-fluid">
+                Helpdesk
+            </div>
+        </footer>
 
         {% if request.user.is_authenticated %}
         <div class="offcanvas offcanvas-end" tabindex="-1" id="profileMenu" aria-labelledby="profileMenuLabel">

@@ -29,9 +29,21 @@ def document_icon(value):
         "png": "images/doc_icons/icon-png.png",
         "jpg": "images/doc_icons/icon-jpg.png",
         "jpeg": "images/doc_icons/icon-jpg.png",
+        "zip": "images/doc_icons/zip.png",
+        "rar": "images/doc_icons/zip.png",
+        "7z": "images/doc_icons/zip.png",
+        "ppt": "images/doc_icons/icon-pptx.png",
+        "pptx": "images/doc_icons/icon-pptx.png",
     }
-    return icon_map.get(extension, "images/doc_icons/icon-docx.png")
+    return icon_map.get(extension, "images/doc_icons/basic_file.png")
+
+
+@register.filter
+def document_extension(value):
+    extension = _extension(value)
+    return extension.upper() if extension else "FILE"
 
 
 register.filter("custom_basename", custom_basename)
 register.filter("document_icon", document_icon)
+register.filter("document_extension", document_extension)

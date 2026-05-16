@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LogoutView
 from django.core.mail import send_mail
+from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -270,17 +271,24 @@ def _append_system_message(ticket, message, event_type=None, event_meta=None):
     ticket.chat = chat
 
 
-def _append_document_message(ticket, user, document):
-    chat = list(ticket.chat or [])
+def _build_document_payload(document):
     document_name = os.path.basename(document.file.name)
+    return {
+        "document_id": document.pk,
+        "document_name": document_name,
+        "document_deleted": False,
+    }
+
+
+def _append_document_message(ticket, user, documents):
+    chat = list(ticket.chat or [])
+    document_payload = [_build_document_payload(document) for document in documents]
     chat.append(
         {
             "author": _get_user_display_name(user),
-            "message": f'прикрепил новый документ "{document_name}"',
+            "message": "прикрепил новые документы" if len(document_payload) > 1 else "прикрепил новый документ",
             "datetime": _current_timestamp(),
-            "document_id": document.pk,
-            "document_name": document_name,
-            "document_deleted": False,
+            "documents": document_payload,
         }
     )
     ticket.chat = chat
@@ -397,7 +405,19 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        technician_users = User.objects.filter(groups__name=executor_group_name).order_by("id").distinct()
+        selected_technician_id = context["form"]["technician"].value()
+        selected_technician = None
+        if selected_technician_id:
+            try:
+                selected_technician = technician_users.get(pk=selected_technician_id)
+            except (User.DoesNotExist, ValueError, TypeError):
+                selected_technician = None
+
         context["max_upload_size_mb"] = getattr(settings, "MAX_UPLOAD_SIZE_MB", 200)
+        context["technician_users"] = technician_users
+        context["selected_technician_id"] = selected_technician.pk if selected_technician else ""
+        context["selected_technician_name"] = _get_user_display_name(selected_technician)
         return context
 
     def form_valid(self, form):
@@ -411,12 +431,9 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
         form.instance.created_by = self.request.user
         response = super().form_valid(form)
 
-        document_names = self.request.POST.getlist("document_names")
-        for document, name in zip(documents, document_names):
+        for document in documents:
             if document:
-                doc = Document(ticket=form.instance, file=document)
-                doc.file.name = name
-                doc.save()
+                Document.objects.create(ticket=form.instance, file=document)
 
         assigned_technician = form.instance.technician or get_default_technician_user()
         _add_ticket_participants(form.instance, self.request.user, assigned_technician)
@@ -552,11 +569,23 @@ def index(request):
     if not status:
         tickets = tickets.filter(status=Ticket.Status.OPENED)
 
+    paginator = Paginator(tickets, 18)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+
+    preserved_query = request.GET.copy()
+    preserved_query.pop("page", None)
+    pagination_query = preserved_query.urlencode()
+
     return render(
         request,
         "desk/index.html",
         {
-            "tickets": tickets,
+            "tickets": page_obj.object_list,
+            "page_obj": page_obj,
+            "is_paginated": page_obj.paginator.num_pages > 1,
+            "pagination_query": pagination_query,
+            "technician_users": User.objects.filter(groups__name=executor_group_name).order_by("id").distinct(),
             "status_choices": [
                 ("CLOSED", "Закрыта"),
                 ("any", "Любой"),
@@ -676,6 +705,10 @@ def send_message(request, ticket_id):
             if entry.get("document_id") == document.pk:
                 entry["document_deleted"] = True
                 entry["document_url"] = ""
+            for nested_document in entry.get("documents", []):
+                if nested_document.get("document_id") == document.pk:
+                    nested_document["document_deleted"] = True
+                    nested_document["document_url"] = ""
         current_ticket.chat = chat
         _append_system_message(
             current_ticket,
@@ -839,9 +872,11 @@ def send_message(request, ticket_id):
         return redirect("ticket", ticket_id=ticket_id)
 
     if uploaded_documents:
-        for uploaded_document in uploaded_documents:
-            document = Document.objects.create(ticket=current_ticket, file=uploaded_document)
-            _append_document_message(current_ticket, request.user, document)
+        created_documents = [
+            Document.objects.create(ticket=current_ticket, file=uploaded_document)
+            for uploaded_document in uploaded_documents
+        ]
+        _append_document_message(current_ticket, request.user, created_documents)
 
     message_text = request.POST.get("message_text")
     if message_text:

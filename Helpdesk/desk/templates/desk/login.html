@@ -13,6 +13,10 @@
                 color: red;
             }
 
+            .login-form {
+                width: min(100%, 34rem);
+            }
+
             .user-search-wrap {
                 position: relative;
             }
@@ -71,7 +75,7 @@
     </header>
     <body>
         <div class="container d-flex justify-content-center align-items-center my-5">
-            <form method="post" class="text-center" novalidate>
+            <form method="post" class="text-center login-form" id="login-form" novalidate>
                 {% csrf_token %}
                 <h2>Вход</h2>
                 {% if error_message %}
@@ -114,6 +118,8 @@
             const userInput = document.getElementById("id_username_display");
             const userProfileInput = document.getElementById("id_user_profile");
             const results = document.getElementById("user-search-results");
+            const loginForm = document.getElementById("login-form");
+            const savedUserStorageKey = "helpdesk_saved_login_user";
             let activeIndex = -1;
 
             function getOptions() {
@@ -142,17 +148,19 @@
             function selectUser(user) {
                 userInput.value = user.name;
                 userProfileInput.value = user.id;
+                localStorage.setItem(savedUserStorageKey, JSON.stringify(user));
                 closeResults();
             }
 
             function renderResults(query) {
                 const normalizedQuery = query.trim().toLowerCase();
+                if (!normalizedQuery) {
+                    closeResults();
+                    return;
+                }
+
                 const filteredUsers = usersData
                     .filter((user) => {
-                        if (!normalizedQuery) {
-                            return true;
-                        }
-
                         return (
                             user.name.toLowerCase().includes(normalizedQuery) ||
                             user.username.toLowerCase().includes(normalizedQuery)
@@ -188,10 +196,6 @@
                 renderResults(userInput.value);
             });
 
-            userInput.addEventListener("focus", () => {
-                renderResults(userInput.value);
-            });
-
             userInput.addEventListener("keydown", (event) => {
                 const options = getOptions();
                 if (!results.classList.contains("is-open") || options.length === 0) {
@@ -223,6 +227,29 @@
                     closeResults();
                 }
             });
+
+            if (loginForm) {
+                loginForm.addEventListener("submit", () => {
+                    if (!userProfileInput.value) {
+                        return;
+                    }
+
+                    const selectedUser = usersData.find((user) => user.id === userProfileInput.value);
+                    if (selectedUser) {
+                        localStorage.setItem(savedUserStorageKey, JSON.stringify(selectedUser));
+                    }
+                });
+            }
+
+            try {
+                const savedUser = JSON.parse(localStorage.getItem(savedUserStorageKey) || "null");
+                if (savedUser && savedUser.id && savedUser.name) {
+                    userInput.value = savedUser.name;
+                    userProfileInput.value = savedUser.id;
+                }
+            } catch (error) {
+                localStorage.removeItem(savedUserStorageKey);
+            }
         </script>
     </body>
 </html>
