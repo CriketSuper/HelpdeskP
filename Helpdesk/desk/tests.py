@@ -715,6 +715,43 @@ class NotificationTests(TestCase):
             Notification.objects.filter(user=user, is_read=False).exists()
         )
 
+    def test_notifications_feed_collapses_multiple_updates_for_same_ticket(self):
+        user = User.objects.create_user(username="notify-bulk-user", password="secret123")
+        _create_profile(user, "Уведомляемый")
+        Notification.objects.create(
+            user=user,
+            title="Обновление по заявке",
+            body="Статус изменен на Согласовано.",
+            level=Notification.Levels.INFO,
+            link="/desk/7/",
+        )
+        Notification.objects.create(
+            user=user,
+            title="Обновление по заявке",
+            body="Исполнитель изменен.",
+            level=Notification.Levels.INFO,
+            link="/desk/7/",
+        )
+        Notification.objects.create(
+            user=user,
+            title="Обновление по заявке",
+            body="Добавлен новый документ.",
+            level=Notification.Levels.INFO,
+            link="/desk/7/",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("notifications_feed"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["notifications"]
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["collapsed_count"], 3)
+        self.assertIn("Еще 2 изменений", payload[0]["body"])
+        self.assertFalse(
+            Notification.objects.filter(user=user, is_read=False).exists()
+        )
+
     def test_ticket_creation_creates_in_app_notification_for_executor(self):
         executor_group = Group.objects.get(name=executor_group_name)
         creator = User.objects.create_user(username="creator-ui", password="secret123")

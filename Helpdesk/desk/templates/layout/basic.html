@@ -91,6 +91,7 @@
                 border-radius: 1rem;
                 box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
                 overflow: hidden;
+                transition: opacity 0.2s ease, transform 0.2s ease;
             }
 
             .notification-toast .toast-header {
@@ -99,6 +100,18 @@
 
             .notification-toast .toast-body {
                 white-space: pre-line;
+            }
+
+            .notification-toast--faded {
+                opacity: 0.72;
+                transform: scale(0.985);
+                -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.72) 70%, rgba(0, 0, 0, 0.18) 100%);
+                mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.72) 70%, rgba(0, 0, 0, 0.18) 100%);
+            }
+
+            .notification-toast__count {
+                font-size: 0.78rem;
+                font-weight: 600;
             }
 
             @media (max-width: 991.98px) {
@@ -246,8 +259,59 @@
         <script>
             (function() {
                 const toastStack = document.getElementById("toast-stack");
+                const pendingToasts = [];
+                const activeToasts = [];
+                const maxVisibleToasts = 3;
 
-                function showToast({ title, body, level = "info", link = "" }) {
+                function syncToastStack() {
+                    activeToasts.forEach((toastElement) => {
+                        toastElement.classList.remove("notification-toast--faded");
+                    });
+
+                    if (activeToasts.length >= maxVisibleToasts) {
+                        activeToasts[0].classList.add("notification-toast--faded");
+                    }
+                }
+
+                function flushToastQueue() {
+                    if (!toastStack) {
+                        return;
+                    }
+
+                    while (activeToasts.length < maxVisibleToasts && pendingToasts.length) {
+                        const toastElement = pendingToasts.shift();
+                        toastStack.appendChild(toastElement);
+                        activeToasts.push(toastElement);
+                        const instance = bootstrap.Toast.getOrCreateInstance(toastElement);
+                        instance.show();
+                    }
+
+                    syncToastStack();
+                }
+
+                function enqueueToastElement(toastElement) {
+                    if (!toastElement) {
+                        return;
+                    }
+
+                    toastElement.addEventListener(
+                        "hidden.bs.toast",
+                        () => {
+                            const activeIndex = activeToasts.indexOf(toastElement);
+                            if (activeIndex !== -1) {
+                                activeToasts.splice(activeIndex, 1);
+                            }
+                            toastElement.remove();
+                            flushToastQueue();
+                        },
+                        { once: true }
+                    );
+
+                    pendingToasts.push(toastElement);
+                    flushToastQueue();
+                }
+
+                function showToast({ title, body, level = "info", link = "", collapsed_count = 1 }) {
                     if (!toastStack) {
                         return;
                     }
@@ -261,27 +325,28 @@
 
                     const bodyMarkup = body ? `<div class="toast-body">${body}</div>` : "";
                     const linkMarkup = link ? `<div class="px-3 pb-3"><a class="btn btn-sm btn-light" href="${link}">Открыть</a></div>` : "";
+                    const countMarkup = collapsed_count > 1
+                        ? `<span class="badge text-bg-light text-dark notification-toast__count">+${collapsed_count - 1}</span>`
+                        : "";
 
                     toast.innerHTML = `
                         <div class="toast-header">
                             <strong class="me-auto">${title || "Уведомление"}</strong>
+                            ${countMarkup}
                             <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Закрыть"></button>
                         </div>
                         ${bodyMarkup}
                         ${linkMarkup}
                     `;
 
-                    toastStack.appendChild(toast);
-                    const instance = new bootstrap.Toast(toast);
-                    instance.show();
-                    toast.addEventListener("hidden.bs.toast", () => toast.remove());
+                    enqueueToastElement(toast);
                 }
 
-                document.querySelectorAll(".toast").forEach((toastElement) => {
-                    const instance = new bootstrap.Toast(toastElement);
-                    instance.show();
-                    toastElement.addEventListener("hidden.bs.toast", () => toastElement.remove());
-                });
+                if (toastStack) {
+                    const initialToasts = Array.from(toastStack.querySelectorAll(".toast"));
+                    toastStack.innerHTML = "";
+                    initialToasts.forEach((toastElement) => enqueueToastElement(toastElement));
+                }
 
                 {% if request.user.is_authenticated %}
                 async function fetchNotifications() {

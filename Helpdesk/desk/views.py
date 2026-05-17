@@ -199,6 +199,60 @@ def _notify_ticket_users(
     _notify_users(title, body, *recipients)
 
 
+def _get_notification_collapse_key(notification):
+    if notification.link and notification.link.startswith("/desk/"):
+        return f"ticket:{notification.link}"
+    return f"notification:{notification.pk}"
+
+
+def _collapse_unread_notifications(notifications):
+    grouped_notifications = {}
+
+    for notification in notifications:
+        group_key = _get_notification_collapse_key(notification)
+        if group_key not in grouped_notifications:
+            grouped_notifications[group_key] = {
+                "notification": notification,
+                "count": 1,
+                "ids": [notification.pk],
+            }
+            continue
+
+        grouped_notifications[group_key]["notification"] = notification
+        grouped_notifications[group_key]["count"] += 1
+        grouped_notifications[group_key]["ids"].append(notification.pk)
+
+    collapsed_groups = sorted(
+        grouped_notifications.values(),
+        key=lambda item: (item["notification"].created_at, item["notification"].pk),
+    )
+
+    payload = []
+    read_ids = []
+    for group in collapsed_groups:
+        notification = group["notification"]
+        read_ids.extend(group["ids"])
+        extra_updates = group["count"] - 1
+        body = notification.body
+        if extra_updates > 0:
+            suffix = f"Еще {extra_updates} изменений по этой заявке."
+            body = f"{body}\n\n{suffix}" if body else suffix
+
+        payload.append(
+            {
+                "id": notification.pk,
+                "title": notification.title,
+                "body": body,
+                "level": notification.level,
+                "link": notification.link,
+                "created_at": timezone.localtime(notification.created_at).strftime("%d.%m.%Y %H:%M"),
+                "collapsed_count": group["count"],
+            }
+        )
+
+    return payload, read_ids
+
+
 def _validate_uploaded_documents(uploaded_documents):
     max_size = getattr(settings, "MAX_UPLOAD_SIZE_BYTES", 200 * 1024 * 1024)
     max_size_mb = getattr(settings, "MAX_UPLOAD_SIZE_MB", 200)
@@ -662,22 +716,10 @@ def notifications_feed(request):
     unread_notifications = list(
         Notification.objects.filter(user=request.user, is_read=False).order_by("created_at")[:20]
     )
-    payload = [
-        {
-            "id": notification.pk,
-            "title": notification.title,
-            "body": notification.body,
-            "level": notification.level,
-            "link": notification.link,
-            "created_at": timezone.localtime(notification.created_at).strftime("%d.%m.%Y %H:%M"),
-        }
-        for notification in unread_notifications
-    ]
+    payload, read_ids = _collapse_unread_notifications(unread_notifications)
 
-    if unread_notifications:
-        Notification.objects.filter(pk__in=[item.pk for item in unread_notifications]).update(
-            is_read=True
-        )
+    if read_ids:
+        Notification.objects.filter(pk__in=read_ids).update(is_read=True)
 
     return JsonResponse({"notifications": payload})
 
