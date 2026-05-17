@@ -515,11 +515,11 @@
 
             <div class="tab-content" id="myTabContent">
                 <div class="tab-pane fade show active border ticket-pane" id="info-tab-pane" role="tabpanel" aria-labelledby="info-tab" tabindex="0">
-                    <h3 class="text-center my-4">{{ current_ticket.title }}</h3>
+                    <h3 class="text-start my-4">{{ current_ticket.title }}</h3>
                     <div class="row mb-3 ticket-info-row">
                         <div class="col-md-6 ticket-info-primary">
                             <h5 class="fw-bold mb-3">Содержание:</h5>
-                            <p class="fw-light">{{ current_ticket.content }}</p>
+                            <div class="fw-light rich-text-content text-start">{{ current_ticket.content|render_rich_text }}</div>
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h5 class="fw-bold mb-0">Документы:</h5>
                                 <span class="badge text-bg-light">{{ current_ticket.related_documents.count }}</span>
@@ -667,7 +667,7 @@
                                 <div class="text-muted">{{ message.datetime }}</div>
                             </div>
                             <div class="card-body text-start">
-                                <div>{{ message.message }}</div>
+                                <div class="rich-text-content">{% if message.message_html %}{{ message.message_html|render_rich_text }}{% else %}{{ message.message|render_rich_text }}{% endif %}</div>
                                 {% if message.documents %}
                                 <div class="chat-document">
                                     <div class="chat-document-list">
@@ -729,7 +729,7 @@
                         {% csrf_token %}
                         <div class="form-group mb-3">
                             <label for="message_text">Сообщение</label>
-                            <textarea class="form-control" id="message_text" name="message_text" rows="3"></textarea>
+                            {% include "desk/includes/rich_text_widget.html" with textarea_id="message_text" textarea_name="message_text" textarea_value="" placeholder="??????? ?????????" min_height="10rem" %}
                         </div>
                         <div class="form-group mb-3 text-start">
                             <label for="chat_documents" class="form-label">Документы</label>

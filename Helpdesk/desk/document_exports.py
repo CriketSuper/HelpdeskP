@@ -15,6 +15,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from .rich_text import rich_text_to_plain_text
 
 TICKET_TEMPLATE_PATH = Path(settings.BASE_DIR) / "static" / "docs" / "ticket_template.docx"
 MONTH_NAMES = {
@@ -187,7 +188,7 @@ def build_ticket_document_context(ticket):
         "technician_name_dative": _format_person_for_document(ticket.technician, "datv", initials_first=True),
         "author_position_accusative": _inflect_position(_get_user_position(ticket.created_by), "accs"),
         "author_name_accusative": _format_person_for_document(ticket.created_by, "accs", initials_first=False),
-        "ticket_content": ticket.content,
+        "ticket_content": rich_text_to_plain_text(ticket.content),
         "ticket_date": _format_ticket_document_date(ticket),
     }
 

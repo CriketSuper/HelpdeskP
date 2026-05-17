@@ -43,6 +43,7 @@ from .models import (
     get_assignable_technicians,
     get_default_technician_user,
 )
+from .rich_text import rich_text_has_text, rich_text_to_plain_text, sanitize_rich_text
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -721,6 +722,7 @@ def ticket_edit(request, ticket_id):
     if request.method == "POST":
         original_title = current_ticket.title
         original_content = current_ticket.content
+        original_content_text = rich_text_to_plain_text(original_content)
         original_criticalness = current_ticket.criticalness
         form = TicketEditForm(request.POST, instance=current_ticket)
         if form.is_valid():
@@ -737,8 +739,9 @@ def ticket_edit(request, ticket_id):
                     f'Критичность заявки изменена с "{original_criticalness}" на "{updated_ticket.criticalness}" пользователем {actor_name}'
                 )
             if original_content != updated_ticket.content:
+                updated_content_text = rich_text_to_plain_text(updated_ticket.content)
                 change_messages.append(
-                    f'Содержание заявки изменено пользователем {actor_name} с "{original_content}" на "{updated_ticket.content}"'
+                    f'Содержание заявки изменено пользователем {actor_name} с "{original_content_text}" на "{updated_content_text}"'
                 )
 
             if change_messages:
@@ -1045,19 +1048,22 @@ def send_message(request, ticket_id):
         ]
         _append_document_message(current_ticket, request.user, created_documents)
 
-    message_text = request.POST.get("message_text")
-    if message_text:
+    raw_message_text = request.POST.get("message_text")
+    message_html = sanitize_rich_text(raw_message_text)
+    message_text = rich_text_to_plain_text(message_html)
+    if rich_text_has_text(message_html):
         chat = list(current_ticket.chat or [])
         chat.append(
             {
                 "author": _get_user_display_name(request.user),
                 "message": message_text,
+                "message_html": message_html,
                 "datetime": _current_timestamp(),
             }
         )
         current_ticket.chat = chat
 
-    if uploaded_documents or message_text:
+    if uploaded_documents or rich_text_has_text(message_html):
         current_ticket.save()
         _notify_ticket_users(
             "Обновление по заявке",

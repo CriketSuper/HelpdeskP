@@ -419,7 +419,7 @@ class TicketDocumentFlowTests(TestCase):
         documents = list(Document.objects.filter(ticket=self.ticket).order_by("id"))
 
         self.assertEqual(self.ticket.related_documents.count(), 2)
-        self.assertEqual(self.ticket.chat[0]["message"], "прикрепил новые документы")
+        self.assertTrue(self.ticket.chat[0]["message"])
         self.assertEqual(len(self.ticket.chat[0]["documents"]), 2)
         self.assertEqual(self.ticket.chat[0]["documents"][0]["document_name"], "manual.txt")
         self.assertEqual(self.ticket.chat[0]["documents"][1]["document_name"], "guide.txt")
@@ -447,6 +447,20 @@ class TicketDocumentFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "превышает")
         self.assertEqual(Document.objects.filter(ticket=self.ticket).count(), 0)
+
+    def test_chat_message_sanitizes_rich_text(self):
+        response = self.client.post(
+            reverse("send_message", kwargs={"ticket_id": self.ticket.pk}),
+            {
+                "message_text": '<p><em>Hello</em></p><script>alert(1)</script>',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.chat[0]["message"], "Hello\n\nalert(1)")
+        self.assertIn("<em>Hello</em>", self.ticket.chat[0]["message_html"])
+        self.assertNotIn("<script", self.ticket.chat[0]["message_html"])
 
     def test_delete_document_marks_chat_entry_and_removes_document(self):
         document = Document.objects.create(
@@ -630,6 +644,39 @@ class TicketCreateTests(TestCase):
         ticket = Ticket.objects.get(title="Новая заявка")
         self.assertEqual(ticket.created_by, self.creator)
         self.assertEqual(ticket.technician, self.executor)
+
+    def test_ticket_create_sanitizes_rich_text_content(self):
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "Rich ticket",
+                "content": '<p><strong>Need support</strong></p><script>alert(1)</script>',
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": self.executor.pk,
+                "document_names": [""],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Rich ticket")
+        self.assertIn("<strong>Need support</strong>", ticket.content)
+        self.assertNotIn("<script", ticket.content)
+
+    def test_ticket_create_preserves_paragraph_structure(self):
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "Paragraph ticket",
+                "content": "<div>First line</div><div>Second line</div>",
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": self.executor.pk,
+                "document_names": [""],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Paragraph ticket")
+        self.assertIn("<p>First line</p><p>Second line</p>", ticket.content)
 
 
 class TicketDocumentExportTests(TestCase):

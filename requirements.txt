@@ -1,4 +1,5 @@
 asgiref>=3.8,<4
+bleach>=6.2,<7
 dj-database-url>=2.2,<4
 Django==6.0.5
 docxtpl>=0.20,<1

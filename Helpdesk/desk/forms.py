@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.forms import PasswordChangeForm
 from django.forms import EmailInput, ModelForm, PasswordInput, Select, Textarea, TextInput
+from django.core.exceptions import ValidationError
 
 from .models import (
     Ticket,
@@ -10,6 +11,7 @@ from .models import (
     get_assignable_technicians,
     get_default_technician,
 )
+from .rich_text import rich_text_has_text, sanitize_rich_text
 
 User = get_user_model()
 
@@ -70,6 +72,12 @@ class TicketForm(ModelForm):
             self.initial["technician"] = default_technician
             self.fields["technician"].initial = default_technician
 
+    def clean_content(self):
+        content = sanitize_rich_text(self.cleaned_data.get("content"))
+        if not rich_text_has_text(content):
+            raise ValidationError("Заполните содержание заявки.")
+        return content
+
     class Meta:
         model = Ticket
         fields = ("title", "content", "criticalness", "technician")
@@ -85,6 +93,12 @@ class TicketForm(ModelForm):
 
 
 class TicketEditForm(ModelForm):
+    def clean_content(self):
+        content = sanitize_rich_text(self.cleaned_data.get("content"))
+        if not rich_text_has_text(content):
+            raise ValidationError("Заполните содержание заявки.")
+        return content
+
     class Meta:
         model = Ticket
         fields = ("title", "content", "criticalness")

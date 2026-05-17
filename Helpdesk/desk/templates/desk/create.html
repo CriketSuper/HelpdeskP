@@ -272,7 +272,7 @@
 
                 <div class="full-width">
                     <label class="form-label fw-semibold" for="{{ form.content.id_for_label }}">Содержание</label>
-                    {{ form.content }}
+                    {% include "desk/includes/rich_text_widget.html" with textarea_id=form.content.id_for_label textarea_name=form.content.html_name textarea_value=form.content.value placeholder="??????? ??????" min_height="12rem" textarea_required=form.content.field.required %}
                     {% if form.content.errors %}
                     <div class="text-danger mt-1">{{ form.content.errors|join:", " }}</div>
                     {% endif %}
