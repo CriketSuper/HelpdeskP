@@ -25,6 +25,7 @@ def env_bool(name, default=False):
 SECRET_KEY = env("SECRET_KEY", default="secret-key")
 DEBUG = env_bool("DEBUG", default=False)
 ALLOWED_HOSTS = env("ALLOWED_HOSTS", default="*", cast=Csv())
+ORGANIZATION_NAME = env("ORGANIZATION_NAME", default="Helpdesk")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -63,6 +64,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "desk.context_processors.organization_context",
             ],
         },
     },
