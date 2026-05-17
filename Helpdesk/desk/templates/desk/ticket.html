@@ -357,16 +357,68 @@
     }
 
     .movement-wrapper {
-        padding: 1rem 0.5rem;
-        overflow-x: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+        height: 100%;
+        padding: 0.5rem;
+    }
+
+    .movement-toolbar {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .movement-toolbar .btn {
+        min-width: 2.75rem;
+        height: 2.75rem;
+        padding: 0 0.95rem;
+        border-radius: 0.85rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+    }
+
+    .movement-viewport {
+        position: relative;
+        flex: 1 1 auto;
+        min-height: 24rem;
+        overflow: hidden;
+        border: 1px solid #d9e2ec;
+        border-radius: 1.25rem;
+        background:
+            linear-gradient(0deg, rgba(13, 110, 253, 0.04) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(13, 110, 253, 0.04) 1px, transparent 1px),
+            linear-gradient(180deg, #fcfdff 0%, #f7fbff 100%);
+        background-size: 24px 24px, 24px 24px, auto;
+        cursor: grab;
+        touch-action: none;
+    }
+
+    .movement-viewport.is-dragging {
+        cursor: grabbing;
+    }
+
+    .movement-stage {
+        position: absolute;
+        inset: 0;
     }
 
     .movement-flow {
+        position: absolute;
+        top: 0;
+        left: 0;
         display: flex;
         align-items: stretch;
         gap: 1rem;
-        min-width: max-content;
         padding: 0.5rem;
+        width: max-content;
+        transform-origin: top left;
+        will-change: transform;
     }
 
     .movement-card {
@@ -410,6 +462,12 @@
         color: #111;
         line-height: 1;
         user-select: none;
+    }
+
+    .movement-hint {
+        font-size: 0.85rem;
+        color: #6c757d;
+        text-align: right;
     }
 
     .tooltip-inner {
@@ -764,27 +822,38 @@
 
                 <div class="tab-pane fade border ticket-pane" id="movement-tab-pane" role="tabpanel" aria-labelledby="movement-tab" tabindex="0">
                     <div class="movement-wrapper">
-                        <div class="movement-flow">
-                            {% for event in movement_events %}
-                                <div
-                                    class="movement-card"
-                                    data-bs-toggle="tooltip"
-                                    data-bs-placement="top"
-                                    data-bs-title="{{ event.tooltip }}"
-                                >
-                                    <p class="movement-title">{{ event.title }}</p>
-                                    {% if event.subtitle %}
-                                    <p class="movement-subtitle">{{ event.subtitle }}</p>
-                                    {% endif %}
-                                    {% if event.time %}
-                                    <div class="movement-time">{{ event.time }}</div>
-                                    {% endif %}
-                                </div>
-                                {% if not forloop.last %}
-                                <div class="movement-arrow">→</div>
-                                {% endif %}
-                            {% endfor %}
+                        <div class="movement-toolbar">
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="movement-zoom-out">−</button>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="movement-zoom-reset">100%</button>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="movement-fit">По размеру</button>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="movement-zoom-in">+</button>
                         </div>
+                        <div class="movement-viewport" id="movement-viewport">
+                            <div class="movement-stage">
+                                <div class="movement-flow" id="movement-flow">
+                                    {% for event in movement_events %}
+                                        <div
+                                            class="movement-card"
+                                            data-bs-toggle="tooltip"
+                                            data-bs-placement="top"
+                                            data-bs-title="{{ event.tooltip }}"
+                                        >
+                                            <p class="movement-title">{{ event.title }}</p>
+                                            {% if event.subtitle %}
+                                            <p class="movement-subtitle">{{ event.subtitle }}</p>
+                                            {% endif %}
+                                            {% if event.time %}
+                                            <div class="movement-time">{{ event.time }}</div>
+                                            {% endif %}
+                                        </div>
+                                        {% if not forloop.last %}
+                                        <div class="movement-arrow">→</div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="movement-hint">Перетаскивайте схему мышью. Используйте Ctrl + колесо или кнопки масштаба.</div>
                     </div>
                 </div>
             </div>
@@ -799,6 +868,13 @@
     const chatDocumentsUploadWidget = chatDocumentsPreviewGrid?.closest(".upload-widget");
     const chatMessageList = document.querySelector(".chat-message-list");
     const chatTabButton = document.getElementById("chat-tab");
+    const movementTabButton = document.getElementById("movement-tab");
+    const movementViewport = document.getElementById("movement-viewport");
+    const movementFlow = document.getElementById("movement-flow");
+    const movementZoomInButton = document.getElementById("movement-zoom-in");
+    const movementZoomOutButton = document.getElementById("movement-zoom-out");
+    const movementZoomResetButton = document.getElementById("movement-zoom-reset");
+    const movementFitButton = document.getElementById("movement-fit");
     const copyTicketLinkButton = document.getElementById("copy-ticket-link-button");
     const ticketTabButtons = Array.from(document.querySelectorAll('#myTab [data-bs-toggle="tab"]'));
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
@@ -835,6 +911,19 @@
     };
     let activeTechnicianIndex = -1;
     let selectedChatDocuments = [];
+    const movementState = {
+        scale: 1,
+        translateX: 0,
+        translateY: 0,
+        minScale: 0.45,
+        maxScale: 1.75,
+        dragPointerId: null,
+        dragStartX: 0,
+        dragStartY: 0,
+        dragOriginX: 0,
+        dragOriginY: 0,
+        fittedOnce: false,
+    };
 
     function getDocumentExtension(filename) {
         const parts = (filename || "").split(".");
@@ -893,6 +982,153 @@
         }
 
         chatMessageList.scrollTop = chatMessageList.scrollHeight;
+    }
+
+    function clampMovementScale(scale) {
+        return Math.min(movementState.maxScale, Math.max(movementState.minScale, scale));
+    }
+
+    function renderMovementTransform() {
+        if (!movementFlow) {
+            return;
+        }
+
+        movementFlow.style.transform = `translate(${movementState.translateX}px, ${movementState.translateY}px) scale(${movementState.scale})`;
+    }
+
+    function fitMovementToViewport() {
+        if (!movementViewport || !movementFlow) {
+            return;
+        }
+
+        const previousTransform = movementFlow.style.transform;
+        movementFlow.style.transform = "translate(0px, 0px) scale(1)";
+
+        const viewportRect = movementViewport.getBoundingClientRect();
+        const flowRect = movementFlow.getBoundingClientRect();
+        const availableWidth = Math.max(viewportRect.width - 48, 240);
+        const availableHeight = Math.max(viewportRect.height - 48, 180);
+        const nextScale = clampMovementScale(
+            Math.min(availableWidth / flowRect.width, availableHeight / flowRect.height, 1)
+        );
+
+        movementState.scale = nextScale;
+        movementState.translateX = Math.round((viewportRect.width - flowRect.width * nextScale) / 2);
+        movementState.translateY = Math.round((viewportRect.height - flowRect.height * nextScale) / 2);
+
+        renderMovementTransform();
+        movementFlow.style.transform = movementFlow.style.transform || previousTransform;
+    }
+
+    function zoomMovement(nextScale, anchorX = null, anchorY = null) {
+        if (!movementViewport || !movementFlow) {
+            return;
+        }
+
+        const clampedScale = clampMovementScale(nextScale);
+        const currentScale = movementState.scale;
+        if (clampedScale === currentScale) {
+            return;
+        }
+
+        const viewportRect = movementViewport.getBoundingClientRect();
+        const pivotX = anchorX ?? viewportRect.width / 2;
+        const pivotY = anchorY ?? viewportRect.height / 2;
+        const worldX = (pivotX - movementState.translateX) / currentScale;
+        const worldY = (pivotY - movementState.translateY) / currentScale;
+
+        movementState.scale = clampedScale;
+        movementState.translateX = pivotX - worldX * clampedScale;
+        movementState.translateY = pivotY - worldY * clampedScale;
+        renderMovementTransform();
+    }
+
+    function resetMovementZoom() {
+        movementState.scale = 1;
+        movementState.translateX = 24;
+        movementState.translateY = 24;
+        renderMovementTransform();
+    }
+
+    function initMovementViewport() {
+        if (!movementViewport || !movementFlow) {
+            return;
+        }
+
+        renderMovementTransform();
+
+        movementViewport.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0) {
+                return;
+            }
+
+            movementState.dragPointerId = event.pointerId;
+            movementState.dragStartX = event.clientX;
+            movementState.dragStartY = event.clientY;
+            movementState.dragOriginX = movementState.translateX;
+            movementState.dragOriginY = movementState.translateY;
+            movementViewport.classList.add("is-dragging");
+            movementViewport.setPointerCapture(event.pointerId);
+        });
+
+        movementViewport.addEventListener("pointermove", (event) => {
+            if (movementState.dragPointerId !== event.pointerId) {
+                return;
+            }
+
+            movementState.translateX = movementState.dragOriginX + (event.clientX - movementState.dragStartX);
+            movementState.translateY = movementState.dragOriginY + (event.clientY - movementState.dragStartY);
+            renderMovementTransform();
+        });
+
+        function stopMovementDrag(event) {
+            if (event && movementState.dragPointerId !== event.pointerId) {
+                return;
+            }
+
+            if (movementState.dragPointerId !== null && event) {
+                movementViewport.releasePointerCapture(event.pointerId);
+            }
+            movementState.dragPointerId = null;
+            movementViewport.classList.remove("is-dragging");
+        }
+
+        movementViewport.addEventListener("pointerup", stopMovementDrag);
+        movementViewport.addEventListener("pointercancel", stopMovementDrag);
+        movementViewport.addEventListener("lostpointercapture", () => {
+            movementState.dragPointerId = null;
+            movementViewport.classList.remove("is-dragging");
+        });
+
+        movementViewport.addEventListener("wheel", (event) => {
+            if (!event.ctrlKey) {
+                return;
+            }
+
+            event.preventDefault();
+            const viewportRect = movementViewport.getBoundingClientRect();
+            const anchorX = event.clientX - viewportRect.left;
+            const anchorY = event.clientY - viewportRect.top;
+            const factor = event.deltaY < 0 ? 1.12 : 0.9;
+            zoomMovement(movementState.scale * factor, anchorX, anchorY);
+        }, { passive: false });
+
+        movementZoomInButton?.addEventListener("click", () => {
+            zoomMovement(movementState.scale * 1.12);
+        });
+
+        movementZoomOutButton?.addEventListener("click", () => {
+            zoomMovement(movementState.scale * 0.9);
+        });
+
+        movementZoomResetButton?.addEventListener("click", resetMovementZoom);
+        movementFitButton?.addEventListener("click", fitMovementToViewport);
+
+        window.addEventListener("resize", () => {
+            if (getActiveTicketTabHash() === "#movement-tab-pane") {
+                fitMovementToViewport();
+            }
+        });
     }
 
     function getActiveTicketTabHash() {
@@ -1255,6 +1491,19 @@
         });
     }
 
+    if (movementTabButton) {
+        movementTabButton.addEventListener("shown.bs.tab", () => {
+            window.setTimeout(() => {
+                if (!movementState.fittedOnce) {
+                    fitMovementToViewport();
+                    movementState.fittedOnce = true;
+                } else {
+                    renderMovementTransform();
+                }
+            }, 30);
+        });
+    }
+
     ticketTabButtons.forEach((tabButton) => {
         tabButton.addEventListener("shown.bs.tab", syncTicketHashFromActiveTab);
     });
@@ -1276,7 +1525,14 @@
         });
     }
 
+    initMovementViewport();
     activateTabFromHash();
+    if (getActiveTicketTabHash() === "#movement-tab-pane") {
+        window.setTimeout(() => {
+            fitMovementToViewport();
+            movementState.fittedOnce = true;
+        }, 30);
+    }
     window.setTimeout(scrollChatToBottom, 30);
 </script>
 {% endblock %}
