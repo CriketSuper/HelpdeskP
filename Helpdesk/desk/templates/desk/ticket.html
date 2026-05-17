@@ -106,17 +106,27 @@
         flex-direction: column;
         min-height: 28rem;
         overflow: hidden;
+        padding-right: 1rem;
+    }
+
+    .ticket-info-secondary {
+        display: flex;
+        flex-direction: column;
+        min-height: 28rem;
     }
 
     .chat-message-list {
-        min-height: 16rem;
-        max-height: 24rem;
+        display: flex;
+        flex-direction: column;
+        min-height: 22rem;
+        max-height: 32rem;
         overflow-y: auto;
         padding-right: 0.25rem;
     }
 
     .chat-empty-state {
-        min-height: 14rem;
+        flex: 1 1 auto;
+        min-height: 22rem;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -129,15 +139,14 @@
     }
 
     .ticket-info-footer {
-        margin-top: auto;
-        padding-top: 1.25rem;
-        border-top: 1px solid #e9ecef;
+        margin-top: 0.75rem;
         align-items: start;
         row-gap: 1rem;
     }
 
     .ticket-info-actions-row {
-        margin-top: 1rem;
+        margin-top: auto;
+        padding-top: 1rem;
     }
 
     .ticket-info-actions {
@@ -502,7 +511,7 @@
                 <div class="tab-pane fade show active border ticket-pane" id="info-tab-pane" role="tabpanel" aria-labelledby="info-tab" tabindex="0">
                     <h3 class="text-center my-4">{{ current_ticket.title }}</h3>
                     <div class="row mb-3 ticket-info-row">
-                        <div class="col-md-6 border ticket-info-primary">
+                        <div class="col-md-6 ticket-info-primary">
                             <h5 class="fw-bold mb-3">Содержание:</h5>
                             <p class="fw-light">{{ current_ticket.content }}</p>
                             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -538,7 +547,7 @@
                             </div>
                         </div>
 
-                        <div class="col-md-6">
+                        <div class="col-md-6 ticket-info-secondary">
                             <div class="row mb-3">
                                 <div class="col-md-6">
                                     <h5 class="fw-bold">Автор:</h5>
@@ -760,6 +769,8 @@
     const chatDocumentsStatus = document.getElementById("chat-documents-status");
     const chatDocumentsPreviewGrid = document.getElementById("chat-documents-preview-grid");
     const chatDocumentsUploadWidget = chatDocumentsPreviewGrid?.closest(".upload-widget");
+    const chatMessageList = document.querySelector(".chat-message-list");
+    const chatTabButton = document.getElementById("chat-tab");
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
     const statusChecks = document.querySelectorAll(".ticket-status-check");
     const technicianSearchInput = document.getElementById("ticket-technician-search");
@@ -843,6 +854,14 @@
         }
 
         grid.classList.remove("upload-grid-hover-locked");
+    }
+
+    function scrollChatToBottom() {
+        if (!chatMessageList) {
+            return;
+        }
+
+        chatMessageList.scrollTop = chatMessageList.scrollHeight;
     }
 
     function attachUploadDropzone(widget, onFilesDropped) {
@@ -1124,5 +1143,13 @@
     tooltipTriggerList.forEach(function (tooltipTriggerEl) {
         new bootstrap.Tooltip(tooltipTriggerEl);
     });
+
+    if (chatTabButton) {
+        chatTabButton.addEventListener("shown.bs.tab", () => {
+            window.setTimeout(scrollChatToBottom, 30);
+        });
+    }
+
+    window.setTimeout(scrollChatToBottom, 30);
 </script>
 {% endblock %}
