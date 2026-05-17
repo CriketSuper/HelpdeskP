@@ -84,6 +84,20 @@ class TicketForm(ModelForm):
         }
 
 
+class TicketEditForm(ModelForm):
+    class Meta:
+        model = Ticket
+        fields = ("title", "content", "criticalness")
+        widgets = {
+            "title": TextInput(attrs={"class": "form-control"}),
+            "content": Textarea(attrs={"class": "form-control", "rows": 8}),
+            "criticalness": Select(
+                attrs={"class": "form-select"},
+                choices=Ticket.Kinds.choices,
+            ),
+        }
+
+
 class LoginForm(forms.Form):
     user_profile = forms.ModelChoiceField(
         queryset=UserProfile.objects.none(),

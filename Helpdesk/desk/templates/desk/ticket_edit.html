@@ -1,0 +1,85 @@
+{% extends "layout/basic.html" %}
+
+{% block title %}Редактирование заявки{% endblock %}
+
+{% block content %}
+<style>
+    .ticket-edit-shell {
+        max-width: 58rem;
+        margin: 0 auto;
+        padding: 0 1rem 2rem;
+    }
+
+    .ticket-edit-card {
+        border: 1px solid #dee2e6;
+        border-radius: 1.1rem;
+        background: #fff;
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
+        padding: 1.5rem;
+    }
+
+    .ticket-edit-grid {
+        display: grid;
+        gap: 1rem 1.25rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ticket-edit-grid .full-width {
+        grid-column: 1 / -1;
+    }
+
+    @media (max-width: 767.98px) {
+        .ticket-edit-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<div class="ticket-edit-shell">
+    <h2 class="text-center mb-4">Редактирование заявки №{{ current_ticket.id }}</h2>
+    <div class="ticket-edit-card">
+        <form method="post">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}
+                <div>{{ error }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="ticket-edit-grid">
+                <div class="full-width">
+                    <label class="form-label fw-semibold" for="{{ form.title.id_for_label }}">Тема</label>
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                    <div class="text-danger mt-1">{{ form.title.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label class="form-label fw-semibold" for="{{ form.criticalness.id_for_label }}">Критичность</label>
+                    {{ form.criticalness }}
+                    {% if form.criticalness.errors %}
+                    <div class="text-danger mt-1">{{ form.criticalness.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="full-width">
+                    <label class="form-label fw-semibold" for="{{ form.content.id_for_label }}">Содержание</label>
+                    {{ form.content }}
+                    {% if form.content.errors %}
+                    <div class="text-danger mt-1">{{ form.content.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="full-width d-flex justify-content-between gap-3 flex-wrap">
+                    <a class="btn btn-outline-secondary" href="{% url 'ticket' current_ticket.id %}">Отмена</a>
+                    <button type="submit" class="btn btn-primary px-4">Сохранить изменения</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

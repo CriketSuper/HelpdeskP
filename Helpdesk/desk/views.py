@@ -19,7 +19,13 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.generic.edit import CreateView
 
-from .forms import LoginForm, PasswordUpdateForm, ProfileSettingsForm, TicketForm
+from .forms import (
+    LoginForm,
+    PasswordUpdateForm,
+    ProfileSettingsForm,
+    TicketEditForm,
+    TicketForm,
+)
 from .models import (
     Document,
     Notification,
@@ -304,6 +310,10 @@ def _can_manage_ticket_workflow(user, ticket):
 
 
 def _can_change_ticket_status(user, ticket):
+    return _is_admin(user) or ticket.created_by == user
+
+
+def _can_edit_ticket_details(user, ticket):
     return _is_admin(user) or ticket.created_by == user
 
 
@@ -684,6 +694,7 @@ def ticket(request, **kwargs):
         "current_ticket": current_ticket,
         "can_assign_technician": can_manage_ticket_workflow,
         "can_edit_progress": can_manage_ticket_workflow,
+        "can_edit_ticket_details": _can_edit_ticket_details(request.user, current_ticket),
         "can_change_ticket_status": _can_change_ticket_status(request.user, current_ticket),
         "can_manage_documents": _can_manage_ticket_documents(request.user, current_ticket),
         "movement_events": _build_movement_events(current_ticket),
@@ -691,6 +702,73 @@ def ticket(request, **kwargs):
         "max_upload_size_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 200),
     }
     return render(request, "desk/ticket.html", context)
+
+
+@login_required
+def ticket_edit(request, ticket_id):
+    current_ticket = get_object_or_404(Ticket, pk=ticket_id)
+    if not _can_edit_ticket_details(request.user, current_ticket):
+        raise Http404("Страница не найдена")
+
+    if request.method == "POST":
+        original_title = current_ticket.title
+        original_content = current_ticket.content
+        original_criticalness = current_ticket.criticalness
+        form = TicketEditForm(request.POST, instance=current_ticket)
+        if form.is_valid():
+            actor_name = _get_user_display_name(request.user)
+            updated_ticket = form.save()
+
+            change_messages = []
+            if original_title != updated_ticket.title:
+                change_messages.append(
+                    f'Тема заявки изменена с "{original_title}" на "{updated_ticket.title}" пользователем {actor_name}'
+                )
+            if original_criticalness != updated_ticket.criticalness:
+                change_messages.append(
+                    f'Критичность заявки изменена с "{original_criticalness}" на "{updated_ticket.criticalness}" пользователем {actor_name}'
+                )
+            if original_content != updated_ticket.content:
+                change_messages.append(
+                    f'Содержание заявки изменено пользователем {actor_name} с "{original_content}" на "{updated_ticket.content}"'
+                )
+
+            if change_messages:
+                for message_text in change_messages:
+                    _append_system_message(updated_ticket, message_text)
+                updated_ticket.save()
+                _add_ticket_participants(
+                    updated_ticket,
+                    request.user,
+                    updated_ticket.created_by,
+                    updated_ticket.technician,
+                )
+                _notify_ticket_users(
+                    "Обновление по заявке",
+                    f'По заявке №{updated_ticket.id} изменены основные данные.',
+                    updated_ticket.created_by,
+                    updated_ticket.technician,
+                    *updated_ticket.participants.all(),
+                    ticket=updated_ticket,
+                    exclude_user=request.user,
+                    level=Notification.Levels.INFO,
+                )
+                messages.success(request, "Заявка обновлена.")
+            else:
+                messages.info(request, "Изменений не найдено.")
+
+            return redirect("ticket", ticket_id=updated_ticket.pk)
+    else:
+        form = TicketEditForm(instance=current_ticket)
+
+    return render(
+        request,
+        "desk/ticket_edit.html",
+        {
+            "form": form,
+            "current_ticket": current_ticket,
+        },
+    )
 
 
 @login_required

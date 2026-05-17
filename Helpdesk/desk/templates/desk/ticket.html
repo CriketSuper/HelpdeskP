@@ -479,10 +479,16 @@
 <h2 align="center">Заявка №{{ current_ticket.id }}</h2>
 <div class="container text-center">
     <div class="ticket-shell">
-        <div class="ticket-actions" aria-label="Действия по заявке">
-            <button class="ticket-action-button" type="button" title="Редактирование" aria-label="Редактирование">
+<div class="ticket-actions" aria-label="Действия по заявке">
+            {% if can_edit_ticket_details %}
+            <a class="ticket-action-button" href="{% url 'ticket_edit' current_ticket.id %}" title="Редактирование" aria-label="Редактирование">
+                <img src="{% static './images/icons/edit.svg' %}" alt="">
+            </a>
+            {% else %}
+            <button class="ticket-action-button" type="button" title="Редактирование недоступно" aria-label="Редактирование недоступно" disabled>
                 <img src="{% static './images/icons/edit.svg' %}" alt="">
             </button>
+            {% endif %}
             <button class="ticket-action-button" type="button" title="Распечатать" aria-label="Распечатать">
                 <img src="{% static './images/icons/print.svg' %}" alt="">
             </button>

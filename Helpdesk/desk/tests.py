@@ -301,6 +301,63 @@ class TicketAccessTests(TestCase):
         self.assigned_ticket.refresh_from_db()
         self.assertEqual(self.assigned_ticket.status, Ticket.Status.OPENED)
 
+    def test_author_can_edit_ticket_details_and_chat_logs_changes(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("ticket_edit", kwargs={"ticket_id": self.assigned_ticket.pk}),
+            {
+                "title": "Assigned updated",
+                "content": "Updated content",
+                "criticalness": Ticket.Kinds.HIGH,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse("ticket", kwargs={"ticket_id": self.assigned_ticket.pk}),
+        )
+        self.assigned_ticket.refresh_from_db()
+        self.assertEqual(self.assigned_ticket.title, "Assigned updated")
+        self.assertEqual(self.assigned_ticket.content, "Updated content")
+        self.assertEqual(self.assigned_ticket.criticalness, Ticket.Kinds.HIGH)
+        chat_messages = [entry.get("message", "") for entry in self.assigned_ticket.chat]
+        self.assertTrue(any("Тема заявки изменена" in message for message in chat_messages))
+        self.assertTrue(any("Критичность заявки изменена" in message for message in chat_messages))
+        self.assertTrue(
+            any(
+                'Содержание заявки изменено пользователем Пользователь 1 с "Assigned ticket" на "Updated content"' in message
+                for message in chat_messages
+            )
+        )
+
+    def test_admin_can_edit_foreign_ticket_details(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse("ticket_edit", kwargs={"ticket_id": self.foreign_ticket.pk}),
+            {
+                "title": "Foreign updated",
+                "content": "Admin updated content",
+                "criticalness": Ticket.Kinds.CRITICAL,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.foreign_ticket.refresh_from_db()
+        self.assertEqual(self.foreign_ticket.title, "Foreign updated")
+        self.assertEqual(self.foreign_ticket.criticalness, Ticket.Kinds.CRITICAL)
+
+    def test_executor_cannot_edit_ticket_details(self):
+        self.client.force_login(self.executor_1)
+
+        response = self.client.get(
+            reverse("ticket_edit", kwargs={"ticket_id": self.assigned_ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 404)
+
 
 class TicketDocumentFlowTests(TestCase):
     def setUp(self):
