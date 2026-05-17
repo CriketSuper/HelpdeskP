@@ -342,6 +342,8 @@
                     enqueueToastElement(toast);
                 }
 
+                window.HelpdeskShowToast = showToast;
+
                 if (toastStack) {
                     const initialToasts = Array.from(toastStack.querySelectorAll(".toast"));
                     toastStack.innerHTML = "";

@@ -766,6 +766,26 @@ class TicketDocumentExportTests(TestCase):
         )
 
 
+    def test_ticket_document_download_uses_female_surname_inflection(self):
+        self.executor.profile.verbose_name = (
+            "\u0413\u0443\u0440\u044c\u0435\u0432\u0430 "
+            "\u0421\u0432\u0435\u0442\u043b\u0430\u043d\u0430 "
+            "\u041b\u0435\u043e\u043d\u0438\u0434\u043e\u0432\u043d\u0430"
+        )
+        self.executor.profile.save(update_fields=["verbose_name"])
+
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        xml = self._read_document_xml(response)
+        self.assertIn(
+            "\u0421.\u041b. \u0413\u0443\u0440\u044c\u0435\u0432\u043e\u0439",
+            xml,
+        )
+
+
 class LogoutTests(TestCase):
     def test_logout_accepts_post_and_redirects_to_login(self):
         user = User.objects.create_user(username="logout-user", password="secret123")

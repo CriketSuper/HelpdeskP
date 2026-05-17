@@ -517,7 +517,7 @@
             <a class="ticket-action-button" href="{% url 'ticket_document_download' current_ticket.id %}" title="Скачать" aria-label="Скачать">
                 <img src="{% static './images/icons/download.svg' %}" alt="">
             </a>
-            <button class="ticket-action-button" type="button" title="Ссылка" aria-label="Ссылка">
+            <button class="ticket-action-button" id="copy-ticket-link-button" type="button" title="Скопировать ссылку на текущую вкладку" aria-label="Скопировать ссылку на текущую вкладку">
                 <img src="{% static './images/icons/link.svg' %}" alt="">
             </button>
         </div>
@@ -799,12 +799,15 @@
     const chatDocumentsUploadWidget = chatDocumentsPreviewGrid?.closest(".upload-widget");
     const chatMessageList = document.querySelector(".chat-message-list");
     const chatTabButton = document.getElementById("chat-tab");
+    const copyTicketLinkButton = document.getElementById("copy-ticket-link-button");
+    const ticketTabButtons = Array.from(document.querySelectorAll('#myTab [data-bs-toggle="tab"]'));
     const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
     const statusChecks = document.querySelectorAll(".ticket-status-check");
     const technicianSearchInput = document.getElementById("ticket-technician-search");
     const technicianIdInput = document.getElementById("ticket-technician-id");
     const technicianResults = document.getElementById("ticket-technician-results");
     const maxFileSizeBytes = {{ max_upload_size_mb }} * 1024 * 1024;
+    const ticketBaseUrl = `${window.location.origin}{% url 'ticket' current_ticket.id %}`;
     const techniciansData = [
         {% for user in users %}
         {
@@ -890,6 +893,80 @@
         }
 
         chatMessageList.scrollTop = chatMessageList.scrollHeight;
+    }
+
+    function getActiveTicketTabHash() {
+        const activeButton = ticketTabButtons.find((button) => button.classList.contains("active"));
+        if (!activeButton) {
+            return "";
+        }
+
+        return activeButton.getAttribute("data-bs-target") || "";
+    }
+
+    function buildTicketShareLink() {
+        const activeHash = getActiveTicketTabHash();
+        return activeHash ? `${ticketBaseUrl}${activeHash}` : ticketBaseUrl;
+    }
+
+    async function copyTextToClipboard(value) {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(value);
+            return;
+        }
+
+        const helperInput = document.createElement("textarea");
+        helperInput.value = value;
+        helperInput.setAttribute("readonly", "readonly");
+        helperInput.style.position = "absolute";
+        helperInput.style.left = "-9999px";
+        document.body.appendChild(helperInput);
+        helperInput.select();
+        document.execCommand("copy");
+        helperInput.remove();
+    }
+
+    function showLinkCopiedFeedback() {
+        if (typeof window.HelpdeskShowToast === "function") {
+            window.HelpdeskShowToast({
+                title: "Ссылка скопирована",
+                body: "Ссылка на текущую вкладку заявки добавлена в буфер обмена.",
+                level: "info",
+            });
+            return;
+        }
+
+        if (!copyTicketLinkButton) {
+            return;
+        }
+
+        const originalTitle = copyTicketLinkButton.getAttribute("title") || "";
+        copyTicketLinkButton.setAttribute("title", "Ссылка скопирована");
+        window.setTimeout(() => {
+            copyTicketLinkButton.setAttribute("title", originalTitle);
+        }, 1500);
+    }
+
+    function syncTicketHashFromActiveTab() {
+        const activeHash = getActiveTicketTabHash();
+        const nextUrl = activeHash ? `${ticketBaseUrl}${activeHash}` : ticketBaseUrl;
+        window.history.replaceState(null, "", nextUrl);
+    }
+
+    function activateTabFromHash() {
+        const currentHash = window.location.hash;
+        if (!currentHash) {
+            return;
+        }
+
+        const matchingButton = ticketTabButtons.find(
+            (button) => button.getAttribute("data-bs-target") === currentHash
+        );
+        if (!matchingButton) {
+            return;
+        }
+
+        bootstrap.Tab.getOrCreateInstance(matchingButton).show();
     }
 
     function attachUploadDropzone(widget, onFilesDropped) {
@@ -1178,6 +1255,28 @@
         });
     }
 
+    ticketTabButtons.forEach((tabButton) => {
+        tabButton.addEventListener("shown.bs.tab", syncTicketHashFromActiveTab);
+    });
+
+    if (copyTicketLinkButton) {
+        copyTicketLinkButton.addEventListener("click", async () => {
+            try {
+                await copyTextToClipboard(buildTicketShareLink());
+                showLinkCopiedFeedback();
+            } catch (error) {
+                if (typeof window.HelpdeskShowToast === "function") {
+                    window.HelpdeskShowToast({
+                        title: "Не удалось скопировать",
+                        body: "Попробуйте скопировать ссылку вручную из адресной строки.",
+                        level: "danger",
+                    });
+                }
+            }
+        });
+    }
+
+    activateTabFromHash();
     window.setTimeout(scrollChatToBottom, 30);
 </script>
 {% endblock %}

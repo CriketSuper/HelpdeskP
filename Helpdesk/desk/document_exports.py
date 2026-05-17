@@ -166,14 +166,17 @@ def _apply_casing(source, value):
     return value
 
 
-def _pick_parse(word, allowed_pos=None, require_grammeme=None):
+def _pick_parse(word, allowed_pos=None, require_grammeme=None, preferred_grammemes=None):
     allowed_pos = set(allowed_pos or [])
+    preferred_grammemes = set(preferred_grammemes or [])
     parses = _morph().parse(word)
 
     for parse in parses:
         if require_grammeme and require_grammeme not in parse.tag:
             continue
         if allowed_pos and parse.tag.POS not in allowed_pos:
+            continue
+        if preferred_grammemes and not preferred_grammemes.issubset(set(parse.tag.grammemes)):
             continue
         return parse
 
@@ -185,16 +188,50 @@ def _pick_parse(word, allowed_pos=None, require_grammeme=None):
     return parses[0] if parses else None
 
 
-def _inflect_word(word, grammatical_case, allowed_pos=None, require_grammeme=None):
+def _inflect_word(
+    word,
+    grammatical_case,
+    allowed_pos=None,
+    require_grammeme=None,
+    preferred_grammemes=None,
+):
     if not word or not CYRILLIC_RE.match(word):
         return word
-    parse = _pick_parse(word, allowed_pos=allowed_pos, require_grammeme=require_grammeme)
+    parse = _pick_parse(
+        word,
+        allowed_pos=allowed_pos,
+        require_grammeme=require_grammeme,
+        preferred_grammemes=preferred_grammemes,
+    )
     if parse is None:
         return word
     inflected = parse.inflect({grammatical_case})
     if inflected is None:
         return word
     return _apply_casing(word, inflected.word)
+
+
+def _infer_person_gender(name, patronymic):
+    patronymic_normalized = (patronymic or "").strip().lower()
+    if patronymic_normalized.endswith("вна"):
+        return "femn"
+    if patronymic_normalized.endswith("ич"):
+        return "masc"
+
+    name_normalized = (name or "").strip()
+    if not name_normalized or not CYRILLIC_RE.match(name_normalized):
+        return None
+
+    parses = _morph().parse(name_normalized)
+    for parse in parses:
+        grammemes = set(parse.tag.grammemes)
+        if "Name" not in grammemes:
+            continue
+        if "femn" in grammemes:
+            return "femn"
+        if "masc" in grammemes:
+            return "masc"
+    return None
 
 
 def _inflect_position(position, grammatical_case):
@@ -233,11 +270,13 @@ def _format_person_for_document(user, grammatical_case, initials_first=False):
     if not surname:
         return full_name
 
+    gender = _infer_person_gender(name, patronymic)
     inflected_surname = _inflect_word(
         surname,
         grammatical_case,
         allowed_pos={"NOUN", "ADJF"},
         require_grammeme="Surn",
+        preferred_grammemes={gender} if gender else None,
     )
     initials = _build_initials(name, patronymic)
     surname_tail = " ".join([inflected_surname, *remainder]).strip()
