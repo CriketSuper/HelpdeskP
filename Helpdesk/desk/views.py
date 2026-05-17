@@ -599,6 +599,8 @@ def index(request):
             "progress_choices": [
                 ("IMPOSSIBLE", "Невозможно выполнить"),
                 ("ACCEPTED", "Принято к рассмотрению"),
+                ("AGREED", "Согласовано"),
+                ("TODO", "К исполнению"),
                 ("INPROGRESS", "В стадии решения"),
                 ("DECIDED", "Успешно решено"),
             ],

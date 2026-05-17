@@ -109,6 +109,10 @@ class VerboseNameBackendTests(TestCase):
 
         self.assertEqual(list(form.fields["technician"].queryset), [director, executor])
 
+    def test_ticket_progress_choices_include_agreed_and_todo(self):
+        self.assertIn(Ticket.Progres.AGREED, Ticket.Progres.values)
+        self.assertIn(Ticket.Progres.TODO, Ticket.Progres.values)
+
     def test_login_view_accepts_search_field_submission(self):
         user = User.objects.create_user(username="petrov", password="secret123")
         profile = _create_profile(user, "Петров Петр")
