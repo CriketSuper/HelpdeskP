@@ -697,13 +697,17 @@
                             {% endif %}
 
                             <div class="row ticket-info-footer">
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <h5 class="fw-bold">Дата создания:</h5>
                                     <p class="fw-light mb-0">{{ current_ticket.created_at|date:"d.m.Y H:i" }}</p>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <h5 class="fw-bold">Дата изменения:</h5>
                                     <p class="fw-light mb-0">{{ current_ticket.published|date:"d.m.Y H:i" }}</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <h5 class="fw-bold">Срок выполнения:</h5>
+                                    <p class="fw-light mb-0">{% if current_ticket.deadline %}{{ current_ticket.deadline|date:"d.m.Y H:i" }}{% else %}—{% endif %}</p>
                                 </div>
                             </div>
                             <div class="row ticket-info-actions-row">

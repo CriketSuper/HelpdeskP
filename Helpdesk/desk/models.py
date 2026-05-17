@@ -120,6 +120,11 @@ class Ticket(models.Model):
         db_index=True,
         verbose_name="Дата и время создания",
     )
+    deadline = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Срок выполнения",
+    )
     published = models.DateTimeField(
         auto_now=True,
         db_index=True,

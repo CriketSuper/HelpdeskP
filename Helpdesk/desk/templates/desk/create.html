@@ -252,6 +252,14 @@
                 </div>
 
                 <div>
+                    <label class="form-label fw-semibold" for="{{ form.deadline.id_for_label }}">Срок выполнения</label>
+                    {{ form.deadline }}
+                    {% if form.deadline.errors %}
+                    <div class="text-danger mt-1">{{ form.deadline.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+
+                <div>
                     <label class="form-label fw-semibold" for="create-technician-search">Исполнитель</label>
                     <input type="hidden" name="technician" id="create-technician-id" value="{{ selected_technician_id }}">
                     <div class="executor-search-wrap">

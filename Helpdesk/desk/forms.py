@@ -62,6 +62,7 @@ class TicketForm(ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["technician"].queryset = get_assignable_technicians()
+        self.fields["deadline"].input_formats = ["%Y-%m-%dT%H:%M"]
         default_technician = get_default_technician()
         if (
             not self.is_bound
@@ -80,7 +81,7 @@ class TicketForm(ModelForm):
 
     class Meta:
         model = Ticket
-        fields = ("title", "content", "criticalness", "technician")
+        fields = ("title", "content", "criticalness", "technician", "deadline")
         widgets = {
             "title": TextInput(attrs={"class": "form-control"}),
             "content": Textarea(attrs={"class": "form-control"}),
@@ -89,10 +90,21 @@ class TicketForm(ModelForm):
                 choices=Ticket.Kinds.choices,
             ),
             "technician": Select(attrs={"class": "form-select"}),
+            "deadline": forms.DateTimeInput(
+                attrs={"class": "form-control", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
         }
 
 
 class TicketEditForm(ModelForm):
+    def __init__(self, *args, can_edit_deadline=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "deadline" in self.fields:
+            self.fields["deadline"].input_formats = ["%Y-%m-%dT%H:%M"]
+        if not can_edit_deadline and "deadline" in self.fields:
+            self.fields.pop("deadline")
+
     def clean_content(self):
         content = sanitize_rich_text(self.cleaned_data.get("content"))
         if not rich_text_has_text(content):
@@ -101,13 +113,17 @@ class TicketEditForm(ModelForm):
 
     class Meta:
         model = Ticket
-        fields = ("title", "content", "criticalness")
+        fields = ("title", "content", "criticalness", "deadline")
         widgets = {
             "title": TextInput(attrs={"class": "form-control"}),
             "content": Textarea(attrs={"class": "form-control", "rows": 8}),
             "criticalness": Select(
                 attrs={"class": "form-select"},
                 choices=Ticket.Kinds.choices,
+            ),
+            "deadline": forms.DateTimeInput(
+                attrs={"class": "form-control", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
             ),
         }
 

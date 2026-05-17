@@ -66,6 +66,16 @@
                     {% endif %}
                 </div>
 
+                {% if form.deadline %}
+                <div>
+                    <label class="form-label fw-semibold" for="{{ form.deadline.id_for_label }}">Срок выполнения</label>
+                    {{ form.deadline }}
+                    {% if form.deadline.errors %}
+                    <div class="text-danger mt-1">{{ form.deadline.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 <div class="full-width">
                     <label class="form-label fw-semibold" for="{{ form.content.id_for_label }}">Содержание</label>
                     {% include "desk/includes/rich_text_widget.html" with textarea_id=form.content.id_for_label textarea_name=form.content.html_name textarea_value=form.content.value placeholder="Опишите изменения" min_height="13rem" textarea_required=form.content.field.required %}

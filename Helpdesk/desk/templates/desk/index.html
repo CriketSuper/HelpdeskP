@@ -364,6 +364,7 @@
             <col data-col-key="status" style="width: 220px;">
             <col data-col-key="created_at" style="width: 180px;">
             <col data-col-key="updated_at" style="width: 180px;">
+            <col data-col-key="deadline" style="width: 180px;">
         </colgroup>
         <thead align="left">
             <tr>
@@ -375,6 +376,7 @@
                 <th scope='col' data-col-key="status">Статус</th>
                 <th scope='col' data-col-key="created_at">Дата создания</th>
                 <th scope='col' data-col-key="updated_at">Дата изменения</th>
+                <th scope='col' data-col-key="deadline">Срок выполнения</th>
             </tr>
         </thead>
         <tbody>
@@ -388,6 +390,7 @@
             <td>{{ t.progress }}</td>
             <td>{{ t.created_at|date:"d.m.Y H:i" }}</td>
             <td>{{ t.published|date:"d.m.Y H:i" }}</td>
+            <td>{% if t.deadline %}{{ t.deadline|date:"d.m.Y H:i" }}{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
         </tbody>

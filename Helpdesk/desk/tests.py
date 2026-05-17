@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from .forms import LoginForm, ProfileSettingsForm, TicketForm, VerboseNameBackend
 from .models import (
@@ -316,6 +317,8 @@ class TicketAccessTests(TestCase):
 
     def test_author_can_edit_ticket_details_and_chat_logs_changes(self):
         self.client.force_login(self.user)
+        self.assigned_ticket.deadline = timezone.make_aware(timezone.datetime(2026, 5, 18, 9, 0))
+        self.assigned_ticket.save(update_fields=["deadline"])
 
         response = self.client.post(
             reverse("ticket_edit", kwargs={"ticket_id": self.assigned_ticket.pk}),
@@ -323,6 +326,7 @@ class TicketAccessTests(TestCase):
                 "title": "Assigned updated",
                 "content": "Updated content",
                 "criticalness": Ticket.Kinds.HIGH,
+                "deadline": "2026-05-22T12:15",
             },
         )
 
@@ -335,6 +339,10 @@ class TicketAccessTests(TestCase):
         self.assertEqual(self.assigned_ticket.title, "Assigned updated")
         self.assertEqual(self.assigned_ticket.content, "Updated content")
         self.assertEqual(self.assigned_ticket.criticalness, Ticket.Kinds.HIGH)
+        self.assertEqual(
+            timezone.localtime(self.assigned_ticket.deadline).strftime("%Y-%m-%dT%H:%M"),
+            "2026-05-18T09:00",
+        )
         chat_messages = [entry.get("message", "") for entry in self.assigned_ticket.chat]
         self.assertTrue(any("Тема заявки изменена" in message for message in chat_messages))
         self.assertTrue(any("Критичность заявки изменена" in message for message in chat_messages))
@@ -354,6 +362,7 @@ class TicketAccessTests(TestCase):
                 "title": "Foreign updated",
                 "content": "Admin updated content",
                 "criticalness": Ticket.Kinds.CRITICAL,
+                "deadline": "2026-05-25T16:45",
             },
         )
 
@@ -361,6 +370,23 @@ class TicketAccessTests(TestCase):
         self.foreign_ticket.refresh_from_db()
         self.assertEqual(self.foreign_ticket.title, "Foreign updated")
         self.assertEqual(self.foreign_ticket.criticalness, Ticket.Kinds.CRITICAL)
+        self.assertEqual(
+            timezone.localtime(self.foreign_ticket.deadline).strftime("%Y-%m-%dT%H:%M"),
+            "2026-05-25T16:45",
+        )
+        self.assertTrue(
+            any("Срок выполнения изменён" in entry.get("message", "") for entry in self.foreign_ticket.chat)
+        )
+
+    def test_author_edit_form_does_not_show_deadline_field(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("ticket_edit", kwargs={"ticket_id": self.assigned_ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("deadline", response.context["form"].fields)
 
     def test_executor_cannot_edit_ticket_details(self):
         self.client.force_login(self.executor_1)
@@ -677,6 +703,25 @@ class TicketCreateTests(TestCase):
         self.assertEqual(response.status_code, 302)
         ticket = Ticket.objects.get(title="Paragraph ticket")
         self.assertIn("<p>First line</p><p>Second line</p>", ticket.content)
+
+    def test_ticket_create_saves_optional_deadline(self):
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "Deadline ticket",
+                "content": "Need deadline",
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": self.executor.pk,
+                "deadline": "2026-05-20T14:30",
+                "document_names": [""],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Deadline ticket")
+        self.assertIsNotNone(ticket.deadline)
+        localized_deadline = timezone.localtime(ticket.deadline)
+        self.assertEqual(localized_deadline.strftime("%Y-%m-%dT%H:%M"), "2026-05-20T14:30")
 
 
 class TicketDocumentExportTests(TestCase):

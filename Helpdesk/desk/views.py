@@ -725,7 +725,12 @@ def ticket_edit(request, ticket_id):
         original_content = current_ticket.content
         original_content_text = rich_text_to_plain_text(original_content)
         original_criticalness = current_ticket.criticalness
-        form = TicketEditForm(request.POST, instance=current_ticket)
+        original_deadline = current_ticket.deadline
+        form = TicketEditForm(
+            request.POST,
+            instance=current_ticket,
+            can_edit_deadline=_is_admin(request.user),
+        )
         if form.is_valid():
             actor_name = _get_user_display_name(request.user)
             updated_ticket = form.save()
@@ -743,6 +748,20 @@ def ticket_edit(request, ticket_id):
                 updated_content_text = rich_text_to_plain_text(updated_ticket.content)
                 change_messages.append(
                     f'Содержание заявки изменено пользователем {actor_name} с "{original_content_text}" на "{updated_content_text}"'
+                )
+            if original_deadline != updated_ticket.deadline:
+                previous_deadline = (
+                    timezone.localtime(original_deadline).strftime("%d.%m.%Y %H:%M")
+                    if original_deadline
+                    else "не указан"
+                )
+                next_deadline = (
+                    timezone.localtime(updated_ticket.deadline).strftime("%d.%m.%Y %H:%M")
+                    if updated_ticket.deadline
+                    else "не указан"
+                )
+                change_messages.append(
+                    f'Срок выполнения изменён с "{previous_deadline}" на "{next_deadline}" пользователем {actor_name}'
                 )
 
             if change_messages:
@@ -771,7 +790,7 @@ def ticket_edit(request, ticket_id):
 
             return redirect("ticket", ticket_id=updated_ticket.pk)
     else:
-        form = TicketEditForm(instance=current_ticket)
+        form = TicketEditForm(instance=current_ticket, can_edit_deadline=_is_admin(request.user))
 
     return render(
         request,
