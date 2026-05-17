@@ -1,11 +1,13 @@
 import re
 from functools import lru_cache
+from html import escape
+from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 
 from django.conf import settings
 from django.utils import timezone
-from docxtpl import DocxTemplate
+from docxtpl import DocxTemplate, RichText
 from pymorphy3 import MorphAnalyzer
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -15,7 +17,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .rich_text import rich_text_to_plain_text
+from .rich_text import rich_text_has_text, rich_text_to_plain_text, sanitize_rich_text
+
 
 TICKET_TEMPLATE_PATH = Path(settings.BASE_DIR) / "static" / "docs" / "ticket_template.docx"
 MONTH_NAMES = {
@@ -35,10 +38,88 @@ MONTH_NAMES = {
 CYRILLIC_RE = re.compile(r"^[А-Яа-яЁё-]+$")
 
 
+class _RichTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.blocks = []
+        self._current_segments = []
+        self._inline_state = {"bold": False, "italic": False, "underline": False}
+        self._blockquote_depth = 0
+        self._list_stack = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"strong", "b"}:
+            self._inline_state["bold"] = True
+        elif tag in {"em", "i"}:
+            self._inline_state["italic"] = True
+        elif tag == "u":
+            self._inline_state["underline"] = True
+        elif tag == "blockquote":
+            self._flush_block("paragraph")
+            self._blockquote_depth += 1
+        elif tag in {"ul", "ol"}:
+            self._flush_block("paragraph")
+            self._list_stack.append({"type": tag, "index": 0})
+        elif tag == "p":
+            self._flush_block("paragraph")
+        elif tag == "li":
+            marker = "- "
+            if self._list_stack and self._list_stack[-1]["type"] == "ol":
+                self._list_stack[-1]["index"] += 1
+                marker = f"{self._list_stack[-1]['index']}. "
+            self._append_text(marker)
+        elif tag == "br":
+            self._append_text("\n")
+
+    def handle_endtag(self, tag):
+        if tag in {"strong", "b"}:
+            self._inline_state["bold"] = False
+        elif tag in {"em", "i"}:
+            self._inline_state["italic"] = False
+        elif tag == "u":
+            self._inline_state["underline"] = False
+        elif tag == "blockquote":
+            self._flush_block("blockquote")
+            self._blockquote_depth = max(0, self._blockquote_depth - 1)
+        elif tag == "li":
+            self._flush_block("list_item")
+        elif tag == "p":
+            self._flush_block("paragraph")
+        elif tag in {"ul", "ol"} and self._list_stack:
+            self._list_stack.pop()
+
+    def handle_data(self, data):
+        self._append_text(data)
+
+    def close(self):
+        super().close()
+        self._flush_block("paragraph")
+
+    def _append_text(self, text):
+        if not text:
+            return
+        self._current_segments.append(
+            {
+                "text": text,
+                "bold": self._inline_state["bold"],
+                "italic": self._inline_state["italic"] or self._blockquote_depth > 0,
+                "underline": self._inline_state["underline"],
+            }
+        )
+
+    def _flush_block(self, block_type):
+        if not self._current_segments:
+            return
+        if not any(segment["text"].strip() for segment in self._current_segments):
+            self._current_segments = []
+            return
+        self.blocks.append({"type": block_type, "segments": self._current_segments})
+        self._current_segments = []
+
+
 def _get_user_source_name(user):
     if user is None:
         return ""
-
     try:
         return user.profile.verbose_name
     except Exception:
@@ -48,7 +129,6 @@ def _get_user_source_name(user):
 def _get_user_position(user):
     if user is None:
         return ""
-
     try:
         return (user.profile.position or "").strip()
     except Exception:
@@ -108,11 +188,9 @@ def _pick_parse(word, allowed_pos=None, require_grammeme=None):
 def _inflect_word(word, grammatical_case, allowed_pos=None, require_grammeme=None):
     if not word or not CYRILLIC_RE.match(word):
         return word
-
     parse = _pick_parse(word, allowed_pos=allowed_pos, require_grammeme=require_grammeme)
     if parse is None:
         return word
-
     inflected = parse.inflect({grammatical_case})
     if inflected is None:
         return word
@@ -124,11 +202,8 @@ def _inflect_position(position, grammatical_case):
     if not words:
         return ""
 
+    parsed_words = [_pick_parse(word) for word in words]
     head_index = None
-    parsed_words = []
-    for word in words:
-        parse = _pick_parse(word)
-        parsed_words.append(parse)
     for index, parse in enumerate(parsed_words):
         if parse and parse.tag.POS == "NOUN":
             head_index = index
@@ -143,14 +218,12 @@ def _inflect_position(position, grammatical_case):
         if parse is None:
             inflected_words.append(word)
             continue
-
         if index < head_index and parse.tag.POS in {"ADJF", "PRTF"}:
             inflected_words.append(_inflect_word(word, grammatical_case, allowed_pos={"ADJF", "PRTF"}))
         elif index == head_index:
             inflected_words.append(_inflect_word(word, grammatical_case, allowed_pos={"NOUN"}))
         else:
             inflected_words.append(word)
-
     return " ".join(inflected_words)
 
 
@@ -181,6 +254,74 @@ def _format_ticket_document_date(ticket):
     return f"«{source_date.day:02d}» {MONTH_NAMES[source_date.month]} {source_date.year} г."
 
 
+def _parse_rich_text_blocks(value):
+    sanitized = sanitize_rich_text(value)
+    if not rich_text_has_text(sanitized):
+        return []
+    parser = _RichTextParser()
+    parser.feed(sanitized)
+    parser.close()
+    return parser.blocks
+
+
+def _build_docx_rich_text(value):
+    rich_text = RichText()
+    blocks = _parse_rich_text_blocks(value)
+    if not blocks:
+        rich_text.add(rich_text_to_plain_text(value), font="Times New Roman", size=28)
+        return rich_text
+
+    for block_index, block in enumerate(blocks):
+        if block_index:
+            rich_text.add("\a")
+        for segment in block["segments"]:
+            _append_docx_segment(rich_text, segment)
+    return rich_text
+
+
+def _append_docx_segment(rich_text, segment):
+    parts = segment["text"].split("\n")
+    for part_index, part in enumerate(parts):
+        rich_text.add(
+            part,
+            bold=segment["bold"],
+            italic=segment["italic"],
+            underline=segment["underline"],
+            font="Times New Roman",
+            size=28,
+        )
+        if part_index < len(parts) - 1:
+            rich_text.add("\n", font="Times New Roman", size=28)
+
+
+def _segment_to_pdf_markup(segment):
+    text = escape(segment["text"]).replace("\n", "<br/>")
+    if segment["underline"]:
+        text = f"<u>{text}</u>"
+    if segment["italic"]:
+        text = f"<i>{text}</i>"
+    if segment["bold"]:
+        text = f"<b>{text}</b>"
+    return text
+
+
+def _build_pdf_content_flowables(value, regular_style, quote_style):
+    blocks = _parse_rich_text_blocks(value)
+    if not blocks:
+        plain_text = rich_text_to_plain_text(value)
+        return [Paragraph(escape(plain_text).replace("\n", "<br/>"), regular_style)]
+
+    flowables = []
+    for block in blocks:
+        markup = "".join(_segment_to_pdf_markup(segment) for segment in block["segments"])
+        style = quote_style if block["type"] == "blockquote" else regular_style
+        flowables.append(Paragraph(markup, style))
+        flowables.append(Spacer(1, 6))
+    if flowables:
+        flowables.pop()
+    return flowables
+
+
 def build_ticket_document_context(ticket):
     return {
         "technician_position_dative": _inflect_position(_get_user_position(ticket.technician), "datv"),
@@ -188,7 +329,8 @@ def build_ticket_document_context(ticket):
         "technician_name_dative": _format_person_for_document(ticket.technician, "datv", initials_first=True),
         "author_position_accusative": _inflect_position(_get_user_position(ticket.created_by), "accs"),
         "author_name_accusative": _format_person_for_document(ticket.created_by, "accs", initials_first=False),
-        "ticket_content": rich_text_to_plain_text(ticket.content),
+        "ticket_content_plain": rich_text_to_plain_text(ticket.content),
+        "ticket_content_rich": _build_docx_rich_text(ticket.content),
         "ticket_date": _format_ticket_document_date(ticket),
     }
 
@@ -249,10 +391,8 @@ def _register_pdf_fonts():
 
     if regular_name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(regular_name, str(regular_font_path)))
-
     if bold_font_path is not None and bold_name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(bold_name, str(bold_font_path)))
-
     if bold_font_path is None:
         bold_name = regular_name
 
@@ -296,6 +436,14 @@ def render_ticket_pdf(ticket):
         "TicketContent",
         parent=regular_style,
         firstLineIndent=14 * mm,
+        spaceAfter=6,
+    )
+    quote_style = ParagraphStyle(
+        "TicketQuote",
+        parent=content_style,
+        leftIndent=8 * mm,
+        borderPadding=3,
+        textColor="#495057",
     )
 
     story = []
@@ -324,7 +472,7 @@ def render_ticket_pdf(ticket):
     story.append(Spacer(1, 14))
     story.append(Paragraph("СЛУЖЕБНАЯ ЗАПИСКА", title_style))
     story.append(Spacer(1, 8))
-    story.append(Paragraph(context["ticket_content"].replace("\n", "<br/>"), content_style))
+    story.extend(_build_pdf_content_flowables(ticket.content, content_style, quote_style))
     story.append(Spacer(1, 28))
     footer_table = Table(
         [[Paragraph(context["ticket_date"], regular_style), Paragraph("________________", right_style)]],

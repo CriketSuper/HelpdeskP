@@ -138,6 +138,28 @@
         border-top: 1px solid #e9ecef;
     }
 
+    .rich-text-content {
+        color: #212529;
+        line-height: 1.65;
+    }
+
+    .rich-text-content strong,
+    .rich-text-content b {
+        font-weight: 700;
+        color: #111827;
+    }
+
+    .rich-text-content em,
+    .rich-text-content i {
+        font-style: italic;
+        color: #374151;
+    }
+
+    .rich-text-content u {
+        text-underline-offset: 0.15em;
+        text-decoration-thickness: 0.08em;
+    }
+
     .ticket-info-footer {
         margin-top: 0.75rem;
         align-items: start;
@@ -519,7 +541,7 @@
                     <div class="row mb-3 ticket-info-row">
                         <div class="col-md-6 ticket-info-primary">
                             <h5 class="fw-bold mb-3">Содержание:</h5>
-                            <div class="fw-light rich-text-content text-start">{{ current_ticket.content|render_rich_text }}</div>
+                            <div class="rich-text-content text-start">{{ current_ticket.content|render_rich_text }}</div>
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h5 class="fw-bold mb-0">Документы:</h5>
                                 <span class="badge text-bg-light">{{ current_ticket.related_documents.count }}</span>
@@ -729,7 +751,7 @@
                         {% csrf_token %}
                         <div class="form-group mb-3">
                             <label for="message_text">Сообщение</label>
-                            {% include "desk/includes/rich_text_widget.html" with textarea_id="message_text" textarea_name="message_text" textarea_value="" placeholder="??????? ?????????" min_height="10rem" %}
+                            {% include "desk/includes/rich_text_widget.html" with textarea_id="message_text" textarea_name="message_text" textarea_value="" placeholder="Напишите сообщение" min_height="10rem" %}
                         </div>
                         <div class="form-group mb-3 text-start">
                             <label for="chat_documents" class="form-label">Документы</label>

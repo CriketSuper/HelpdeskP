@@ -729,6 +729,42 @@ class TicketDocumentExportTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/pdf")
         self.assertTrue(response.content.startswith(b"%PDF"))
 
+    def test_ticket_document_download_preserves_rich_content_runs(self):
+        self.ticket.content = "<p><strong>First line</strong></p><p><em>Second line</em></p>"
+        self.ticket.save(update_fields=["content"])
+
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        xml = self._read_document_xml(response)
+        self.assertIn("Times New Roman", xml)
+        self.assertIn("First line", xml)
+        self.assertIn("Second line", xml)
+        self.assertIn("<w:b/>", xml)
+        self.assertIn("<w:i/>", xml)
+
+    def test_ticket_document_download_preserves_paragraph_break_after_plain_text(self):
+        self.ticket.content = (
+            "&nbsp; &nbsp; Прошу выдать <i>принтер </i>так то так-то."
+            "<p>Далее также хочу <b>ещё попросить напиток газированный</b></p>"
+        )
+        self.ticket.save(update_fields=["content"])
+
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        xml = self._read_document_xml(response)
+        self.assertIn("Прошу выдать", xml)
+        self.assertIn("Далее также хочу", xml)
+        self.assertRegex(
+            xml,
+            r"так то так-то\.</w:t>.*?</w:p><w:p[^>]*>.*?Далее также хочу",
+        )
+
 
 class LogoutTests(TestCase):
     def test_logout_accepts_post_and_redirects_to_login(self):
