@@ -4,7 +4,12 @@ from django.contrib.auth.models import Group
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 
-from .models import UserProfile, admin_group_name, executor_group_name
+from .models import (
+    UserProfile,
+    admin_group_name,
+    director_group_name,
+    executor_group_name,
+)
 
 
 @receiver(post_migrate)
@@ -13,6 +18,7 @@ def ensure_default_roles(sender, **kwargs):
         return
 
     admin_group, _ = Group.objects.get_or_create(name=admin_group_name)
+    Group.objects.get_or_create(name=director_group_name)
     Group.objects.get_or_create(name=executor_group_name)
 
     user_model = get_user_model()

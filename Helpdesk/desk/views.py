@@ -27,6 +27,7 @@ from .models import (
     UserProfile,
     admin_group_name,
     executor_group_name,
+    get_assignable_technicians,
     get_default_technician_user,
 )
 
@@ -405,8 +406,13 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        technician_users = User.objects.filter(groups__name=executor_group_name).order_by("id").distinct()
-        selected_technician_id = context["form"]["technician"].value()
+        technician_users = get_assignable_technicians()
+        default_technician = get_default_technician_user()
+        selected_technician_id = (
+            context["form"]["technician"].value()
+            or context["form"].initial.get("technician")
+            or (default_technician.pk if default_technician else "")
+        )
         selected_technician = None
         if selected_technician_id:
             try:
@@ -585,7 +591,7 @@ def index(request):
             "page_obj": page_obj,
             "is_paginated": page_obj.paginator.num_pages > 1,
             "pagination_query": pagination_query,
-            "technician_users": User.objects.filter(groups__name=executor_group_name).order_by("id").distinct(),
+            "technician_users": get_assignable_technicians(),
             "status_choices": [
                 ("CLOSED", "Закрыта"),
                 ("any", "Любой"),
@@ -616,7 +622,7 @@ def ticket(request, **kwargs):
         raise Http404("Страница не найдена")
 
     can_manage_ticket_workflow = _can_manage_ticket_workflow(request.user, current_ticket)
-    users = User.objects.filter(groups__name=executor_group_name).order_by("id").distinct()
+    users = get_assignable_technicians()
 
     context = {
         "current_ticket": current_ticket,
@@ -734,7 +740,7 @@ def send_message(request, ticket_id):
         technician_id = request.POST.get("technician")
         if technician_id:
             technician = get_object_or_404(
-                User.objects.filter(groups__name=executor_group_name).distinct(),
+                get_assignable_technicians(),
                 pk=technician_id,
             )
             if current_ticket.technician_id != technician.id:

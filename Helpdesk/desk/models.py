@@ -3,12 +3,27 @@ from django.db import models
 
 admin_group_name = "Админ"
 executor_group_name = "Исполнитель"
+director_group_name = "Директор"
 
 User = get_user_model()
 
 
+def get_assignable_technicians():
+    return (
+        User.objects.filter(
+            models.Q(groups__name=director_group_name)
+            | models.Q(groups__name=executor_group_name)
+        )
+        .order_by("id")
+        .distinct()
+    )
+
+
 def get_default_technician_user():
-    return User.objects.filter(groups__name=executor_group_name).order_by("id").first()
+    director = User.objects.filter(groups__name=director_group_name).order_by("id").first()
+    if director is not None:
+        return director
+    return get_assignable_technicians().first()
 
 
 def get_default_technician():
@@ -73,7 +88,10 @@ class Ticket(models.Model):
         verbose_name="Исполнитель",
         blank=True,
         null=True,
-        limit_choices_to={"groups__name": executor_group_name},
+        limit_choices_to=(
+            models.Q(groups__name=director_group_name)
+            | models.Q(groups__name=executor_group_name)
+        ),
         default=get_default_technician,
         related_name="assigned_tickets",
     )

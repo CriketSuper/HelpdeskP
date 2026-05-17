@@ -4,7 +4,12 @@ from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.forms import PasswordChangeForm
 from django.forms import EmailInput, ModelForm, PasswordInput, Select, Textarea, TextInput
 
-from .models import Ticket, UserProfile, executor_group_name
+from .models import (
+    Ticket,
+    UserProfile,
+    get_assignable_technicians,
+    get_default_technician,
+)
 
 User = get_user_model()
 
@@ -54,9 +59,16 @@ class TicketForm(ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["technician"].queryset = User.objects.filter(
-            groups__name=executor_group_name
-        ).order_by("id").distinct()
+        self.fields["technician"].queryset = get_assignable_technicians()
+        default_technician = get_default_technician()
+        if (
+            not self.is_bound
+            and not self.initial.get("technician")
+            and not getattr(self.instance, "technician_id", None)
+            and default_technician
+        ):
+            self.initial["technician"] = default_technician
+            self.fields["technician"].initial = default_technician
 
     class Meta:
         model = Ticket

@@ -15,6 +15,7 @@ from .models import (
     Ticket,
     UserProfile,
     admin_group_name,
+    director_group_name,
     executor_group_name,
     get_default_technician,
 )
@@ -68,8 +69,16 @@ class VerboseNameBackendTests(TestCase):
     def test_executor_group_is_created_automatically(self):
         self.assertTrue(Group.objects.filter(name=executor_group_name).exists())
 
-    def test_get_default_technician_returns_first_executor_user_id(self):
+    def test_director_group_is_created_automatically(self):
+        self.assertTrue(Group.objects.filter(name=director_group_name).exists())
+
+    def test_get_default_technician_prefers_first_director_user_id(self):
+        director_group = Group.objects.get(name=director_group_name)
         executor_group = Group.objects.get(name=executor_group_name)
+
+        director = User.objects.create_user(username="director-1", password="secret123")
+        _create_profile(director, "Директор 1")
+        director.groups.add(director_group)
 
         first_executor = User.objects.create_user(username="executor-1", password="secret123")
         _create_profile(first_executor, "Исполнитель 1")
@@ -79,10 +88,15 @@ class VerboseNameBackendTests(TestCase):
         _create_profile(second_executor, "Исполнитель 2")
         second_executor.groups.add(executor_group)
 
-        self.assertEqual(get_default_technician(), first_executor.pk)
+        self.assertEqual(get_default_technician(), director.pk)
 
-    def test_ticket_form_shows_only_executors_in_technician_field(self):
+    def test_ticket_form_shows_directors_and_executors_in_technician_field(self):
+        director_group = Group.objects.get(name=director_group_name)
         executor_group = Group.objects.get(name=executor_group_name)
+
+        director = User.objects.create_user(username="director-1", password="secret123")
+        _create_profile(director, "Директор 1")
+        director.groups.add(director_group)
 
         executor = User.objects.create_user(username="executor-1", password="secret123")
         _create_profile(executor, "Исполнитель 1")
@@ -93,7 +107,7 @@ class VerboseNameBackendTests(TestCase):
 
         form = TicketForm()
 
-        self.assertEqual(list(form.fields["technician"].queryset), [executor])
+        self.assertEqual(list(form.fields["technician"].queryset), [director, executor])
 
     def test_login_view_accepts_search_field_submission(self):
         user = User.objects.create_user(username="petrov", password="secret123")
@@ -504,15 +518,27 @@ class TicketDocumentFlowTests(TestCase):
 
 class TicketCreateTests(TestCase):
     def setUp(self):
+        self.director_group = Group.objects.get(name=director_group_name)
         self.executor_group = Group.objects.get(name=executor_group_name)
         self.creator = User.objects.create_user(username="creator", password="secret123")
         _create_profile(self.creator, "Создатель")
+
+        self.director = User.objects.create_user(username="director-1", password="secret123")
+        _create_profile(self.director, "Директор 1")
+        self.director.groups.add(self.director_group)
 
         self.executor = User.objects.create_user(username="executor-1", password="secret123")
         _create_profile(self.executor, "Исполнитель 1")
         self.executor.groups.add(self.executor_group)
 
         self.client.force_login(self.creator)
+
+    def test_create_form_prefills_director_as_default_technician(self):
+        response = self.client.get(reverse("add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_technician_id"], self.director.pk)
+        self.assertEqual(response.context["selected_technician_name"], "Директор 1")
 
     def test_user_can_choose_executor_while_creating_ticket(self):
         response = self.client.post(
