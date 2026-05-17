@@ -275,11 +275,74 @@
 
   .index-table-wrap {
     flex: 1 1 auto;
+    overflow-x: hidden;
   }
 
   .index-pagination {
     margin-top: auto;
     padding-top: 1rem;
+  }
+
+  .index-ticket-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .index-ticket-table th {
+    position: relative;
+    white-space: normal;
+    padding-right: 1rem;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    vertical-align: middle;
+  }
+
+  .index-ticket-table td {
+    vertical-align: middle;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .index-ticket-table td > a {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .index-table-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -0.125rem;
+    width: 0.5rem;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .index-table-resize-handle::before {
+    content: "";
+    position: absolute;
+    top: 20%;
+    bottom: 20%;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: rgba(13, 110, 253, 0.16);
+    transition: background-color 0.2s ease;
+  }
+
+  .index-ticket-table th:hover .index-table-resize-handle::before,
+  .index-table-resize-handle.is-active::before {
+    background: rgba(13, 110, 253, 0.5);
+  }
+
+  .index-ticket-table.is-resizing {
+    user-select: none;
+    cursor: col-resize;
   }
 
   @media (max-width: 991.98px) {
@@ -291,17 +354,30 @@
 
 <div class="container-fluid index-page">
     <div class="index-table-wrap">
-    <table class="table table-hover">
+    <table class="table table-hover index-ticket-table" id="index-ticket-table">
+        <colgroup>
+            <col data-col-key="id" style="width: 72px;">
+            <col data-col-key="title" style="width: 260px;">
+            <col data-col-key="author" style="width: 220px;">
+            <col data-col-key="criticalness" style="width: 170px;">
+            <col data-col-key="technician" style="width: 220px;">
+            <col data-col-key="status" style="width: 220px;">
+            <col data-col-key="created_at" style="width: 180px;">
+            <col data-col-key="updated_at" style="width: 180px;">
+        </colgroup>
         <thead align="left">
-            <th scope='col'>ID</th>
-            <th scope='col'>Тема</th>
-            <th scope='col'>Автор</th>
-            <th scope='col'>Критичность</th>
-            <th scope='col'>Исполнитель</th>
-            <th scope='col'>Статус</th>
-            <th scope='col'>Дата создания</th>
-            <th scope='col'>Дата изменения</th>
+            <tr>
+                <th scope='col' data-col-key="id">ID</th>
+                <th scope='col' data-col-key="title">Тема</th>
+                <th scope='col' data-col-key="author">Автор</th>
+                <th scope='col' data-col-key="criticalness">Критичность</th>
+                <th scope='col' data-col-key="technician">Исполнитель</th>
+                <th scope='col' data-col-key="status">Статус</th>
+                <th scope='col' data-col-key="created_at">Дата создания</th>
+                <th scope='col' data-col-key="updated_at">Дата изменения</th>
+            </tr>
         </thead>
+        <tbody>
         {% for t in tickets %}
         <tr align='left' {% if t.status == "закрыта" %}class="table-success"{% endif %}>
             <td><a href="{{ t.get_absolute_url }}">{{ t.id }}</a></td>
@@ -314,6 +390,7 @@
             <td>{{ t.published|date:"d.m.Y H:i" }}</td>
         </tr>
         {% endfor %}
+        </tbody>
     </table>
     </div>
 
@@ -345,4 +422,169 @@
     </nav>
     {% endif %}
 </div>
+
+<script>
+  (function() {
+    const table = document.getElementById("index-ticket-table");
+    if (!table) {
+      return;
+    }
+
+    const storageKey = "helpdesk:index-column-widths:v1";
+    const minColumnWidth = 72;
+    const columns = Array.from(table.querySelectorAll("col[data-col-key]"));
+    const headers = Array.from(table.querySelectorAll("th[data-col-key]"));
+    const tableWrap = table.closest(".index-table-wrap");
+    let activeResize = null;
+
+    function loadStoredWidths() {
+      try {
+        return JSON.parse(localStorage.getItem(storageKey) || "{}");
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function saveStoredWidths(widthMap) {
+      localStorage.setItem(storageKey, JSON.stringify(widthMap));
+    }
+
+    function applyWidth(columnKey, width) {
+      const normalizedWidth = Math.max(minColumnWidth, Math.round(width));
+      const column = columns.find((item) => item.dataset.colKey === columnKey);
+      if (!column) {
+        return;
+      }
+
+      column.style.width = `${normalizedWidth}px`;
+    }
+
+    function getCurrentColumnWidths() {
+      return headers.map((header) => ({
+        columnKey: header.dataset.colKey,
+        width: Math.round(header.getBoundingClientRect().width),
+      }));
+    }
+
+    function freezeCurrentLayout() {
+      getCurrentColumnWidths().forEach(({ columnKey, width }) => {
+        applyWidth(columnKey, width);
+      });
+    }
+
+    function applyStoredWidths() {
+      const storedWidths = loadStoredWidths();
+      const storedEntries = columns
+        .map((column) => ({
+          columnKey: column.dataset.colKey,
+          width: Number(storedWidths[column.dataset.colKey]),
+        }))
+        .filter((item) => item.columnKey && Number.isFinite(item.width) && item.width > 0);
+
+      if (storedEntries.length !== columns.length) {
+        freezeCurrentLayout();
+        return;
+      }
+
+      const wrapWidth = Math.round(
+        tableWrap ? tableWrap.getBoundingClientRect().width : table.getBoundingClientRect().width
+      );
+      const totalStoredWidth = storedEntries.reduce((sum, item) => sum + item.width, 0);
+      if (!wrapWidth || !totalStoredWidth) {
+        freezeCurrentLayout();
+        return;
+      }
+
+      const scale = wrapWidth / totalStoredWidth;
+      let usedWidth = 0;
+
+      storedEntries.forEach((item, index) => {
+        const isLast = index === storedEntries.length - 1;
+        const nextWidth = isLast
+          ? Math.max(minColumnWidth, wrapWidth - usedWidth)
+          : Math.max(minColumnWidth, Math.round(item.width * scale));
+        applyWidth(item.columnKey, nextWidth);
+        usedWidth += nextWidth;
+      });
+    }
+
+    function persistCurrentWidths() {
+      const widthMap = {};
+      columns.forEach((column) => {
+        const columnKey = column.dataset.colKey;
+        const parsedWidth = parseInt(column.style.width, 10);
+        if (columnKey && Number.isFinite(parsedWidth)) {
+          widthMap[columnKey] = parsedWidth;
+        }
+      });
+      saveStoredWidths(widthMap);
+    }
+
+    function stopResize() {
+      if (!activeResize) {
+        return;
+      }
+
+      activeResize.handle.classList.remove("is-active");
+      table.classList.remove("is-resizing");
+      document.body.style.cursor = "";
+      persistCurrentWidths();
+      activeResize = null;
+    }
+
+    function onResizeMove(event) {
+      if (!activeResize) {
+        return;
+      }
+
+      const rawDelta = event.clientX - activeResize.startX;
+      const minDelta = minColumnWidth - activeResize.startWidth;
+      const maxDelta = activeResize.nextStartWidth - minColumnWidth;
+      const clampedDelta = Math.min(Math.max(rawDelta, minDelta), maxDelta);
+
+      applyWidth(activeResize.columnKey, activeResize.startWidth + clampedDelta);
+      applyWidth(activeResize.nextColumnKey, activeResize.nextStartWidth - clampedDelta);
+    }
+
+    headers.forEach((header, index) => {
+      const columnKey = header.dataset.colKey;
+      const nextHeader = headers[index + 1];
+      if (!columnKey || !nextHeader) {
+        return;
+      }
+
+      const handle = document.createElement("span");
+      handle.className = "index-table-resize-handle";
+      handle.setAttribute("aria-hidden", "true");
+      header.appendChild(handle);
+
+      handle.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        freezeCurrentLayout();
+
+        activeResize = {
+          columnKey,
+          nextColumnKey: nextHeader.dataset.colKey,
+          handle,
+          startX: event.clientX,
+          startWidth: header.getBoundingClientRect().width,
+          nextStartWidth: nextHeader.getBoundingClientRect().width,
+        };
+
+        handle.classList.add("is-active");
+        table.classList.add("is-resizing");
+        document.body.style.cursor = "col-resize";
+      });
+    });
+
+    document.addEventListener("pointermove", onResizeMove);
+    document.addEventListener("pointerup", stopResize);
+    document.addEventListener("pointercancel", stopResize);
+    window.addEventListener("blur", stopResize);
+
+    applyStoredWidths();
+  })();
+</script>
 {% endblock %}
