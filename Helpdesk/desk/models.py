@@ -19,6 +19,12 @@ def get_default_technician():
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     verbose_name = models.CharField(max_length=255, verbose_name="Имя пользователя")
+    position = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Должность",
+    )
     receive_email_notifications = models.BooleanField(
         default=True,
         verbose_name="Получать уведомления по почте",

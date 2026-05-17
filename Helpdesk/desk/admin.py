@@ -51,7 +51,7 @@ class UserProfileInline(admin.StackedInline):
         (
             None,
             {
-                "fields": ("verbose_name", "receive_email_notifications"),
+                "fields": ("verbose_name", "position", "receive_email_notifications"),
             },
         ),
     )

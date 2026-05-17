@@ -8,7 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .forms import LoginForm, TicketForm, VerboseNameBackend
+from .forms import LoginForm, ProfileSettingsForm, TicketForm, VerboseNameBackend
 from .models import (
     Document,
     Notification,
@@ -587,6 +587,11 @@ class ProfileSettingsTests(TestCase):
         response = self.client.get(reverse("profiles"))
 
         self.assertEqual(response.status_code, 200)
+
+    def test_profile_settings_form_does_not_expose_position_field(self):
+        form = ProfileSettingsForm(user=self.user, instance=self.user.profile)
+
+        self.assertNotIn("position", form.fields)
 
     def test_profile_settings_can_change_password(self):
         response = self.client.post(
