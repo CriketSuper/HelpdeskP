@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import os
 
 from django.conf import settings
@@ -797,7 +798,17 @@ def download_document(request, document_id):
         raise Http404("Файл не найден") from exc
 
     filename = os.path.basename(document.file.name)
-    return FileResponse(file_handle, as_attachment=True, filename=filename)
+    guessed_content_type, _ = mimetypes.guess_type(filename)
+    is_pdf = (guessed_content_type == "application/pdf") or filename.lower().endswith(".pdf")
+
+    response = FileResponse(
+        file_handle,
+        as_attachment=not is_pdf,
+        filename=filename,
+        content_type="application/pdf" if is_pdf else "application/octet-stream",
+    )
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @login_required

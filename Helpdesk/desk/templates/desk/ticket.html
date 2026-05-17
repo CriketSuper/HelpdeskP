@@ -537,7 +537,7 @@
 
             <div class="tab-content" id="myTabContent">
                 <div class="tab-pane fade show active border ticket-pane" id="info-tab-pane" role="tabpanel" aria-labelledby="info-tab" tabindex="0">
-                    <h3 class="text-start my-4">{{ current_ticket.title }}</h3>
+                    <h3 class="text-center my-4">{{ current_ticket.title }}</h3>
                     <div class="row mb-3 ticket-info-row">
                         <div class="col-md-6 ticket-info-primary">
                             <h5 class="fw-bold mb-3">Содержание:</h5>
@@ -558,7 +558,7 @@
                                             </div>
                                         </div>
                                         <div class="document-actions">
-                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.id %}">Открыть</a>
+                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.id %}" {% if file_name|document_extension == "PDF" %}target="_blank" rel="noopener"{% endif %}>Открыть</a>
                                             {% if can_manage_documents %}
                                             <form class="document-remove-form" method="post" action="{% url 'send_message' current_ticket.pk %}" onsubmit="return confirm('Удалить документ из заявки?');">
                                                 {% csrf_token %}
@@ -708,7 +708,7 @@
                                             </div>
                                             <div class="document-actions">
                                                 {% if not document.document_deleted and document.document_id %}
-                                                <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.document_id %}">Открыть документ</a>
+                                                <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' document.document_id %}" {% if document.document_name|document_extension == "PDF" %}target="_blank" rel="noopener"{% endif %}>Открыть документ</a>
                                                 {% endif %}
                                             </div>
                                         </div>
@@ -732,9 +732,9 @@
                                         </div>
                                         {% if not message.document_deleted %}
                                             {% if message.document_id %}
-                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' message.document_id %}">Открыть документ</a>
+                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'download_document' message.document_id %}" {% if message.document_name|document_extension == "PDF" %}target="_blank" rel="noopener"{% endif %}>Открыть документ</a>
                                             {% elif message.document_url %}
-                                            <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}">Открыть документ</a>
+                                            <a class="btn btn-sm btn-outline-primary" href="{{ message.document_url }}" {% if message.document_name|document_extension == "PDF" %}target="_blank" rel="noopener"{% endif %}>Открыть документ</a>
                                             {% endif %}
                                         {% endif %}
                                     </div>
