@@ -9,6 +9,8 @@ from .views import (
     profile_settings,
     send_message,
     ticket,
+    ticket_document_download,
+    ticket_document_print,
     ticket_edit,
 )
 from django.conf import settings
@@ -24,6 +26,8 @@ urlpatterns = [
     path('profiles/', profile_settings, name='profiles'),
     path('profile/', profile_settings, name='profile_settings'),
     path('documents/<int:document_id>/download/', download_document, name='download_document'),
+    path('<int:ticket_id>/document/download/', ticket_document_download, name='ticket_document_download'),
+    path('<int:ticket_id>/document/print/', ticket_document_print, name='ticket_document_print'),
     path('<int:ticket_id>/edit/', ticket_edit, name='ticket_edit'),
     path('<int:ticket_id>/', ticket, name='ticket'),
     path('send_message/<int:ticket_id>/', send_message, name='send_message'),

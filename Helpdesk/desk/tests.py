@@ -1,5 +1,8 @@
 import os
 import shutil
+from email.header import decode_header
+from io import BytesIO
+from zipfile import ZipFile
 
 from django.core import mail
 from django.contrib.auth import get_user_model
@@ -24,8 +27,18 @@ from .views import _build_movement_events, _get_notification_email, _notify_user
 User = get_user_model()
 
 
-def _create_profile(user, verbose_name):
-    return UserProfile.objects.create(user=user, verbose_name=verbose_name)
+def _create_profile(user, verbose_name, position=""):
+    return UserProfile.objects.create(user=user, verbose_name=verbose_name, position=position)
+
+
+def _decode_header_value(value):
+    parts = []
+    for chunk, encoding in decode_header(value):
+        if isinstance(chunk, bytes):
+            parts.append(chunk.decode(encoding or "utf-8"))
+        else:
+            parts.append(chunk)
+    return "".join(parts)
 
 
 class VerboseNameBackendTests(TestCase):
@@ -617,6 +630,57 @@ class TicketCreateTests(TestCase):
         ticket = Ticket.objects.get(title="Новая заявка")
         self.assertEqual(ticket.created_by, self.creator)
         self.assertEqual(ticket.technician, self.executor)
+
+
+class TicketDocumentExportTests(TestCase):
+    def setUp(self):
+        self.creator = User.objects.create_user(username="memo-author", password="secret123")
+        _create_profile(self.creator, "Иванов Дмитрий Викторович", position="Заместитель директора")
+
+        self.executor = User.objects.create_user(username="memo-executor", password="secret123")
+        _create_profile(self.executor, "Снежная Светлана Леонидовна", position="Директор")
+
+        self.ticket = Ticket.objects.create(
+            title="Выдача картриджа",
+            content="Прошу выдать картридж",
+            created_by=self.creator,
+            technician=self.executor,
+        )
+        self.client.force_login(self.creator)
+
+    def _read_document_xml(self, response):
+        with ZipFile(BytesIO(response.content)) as archive:
+            xml = archive.read("word/document.xml").decode("utf-8")
+        return xml
+
+    def test_ticket_document_download_renders_template_placeholders(self):
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content_disposition = _decode_header_value(response["Content-Disposition"])
+        self.assertIn("attachment;", content_disposition)
+        xml = self._read_document_xml(response)
+        self.assertIn("Директору", xml)
+        self.assertIn("Helpdesk", xml)
+        self.assertIn("С.Л. Снежной", xml)
+        self.assertIn("Заместителя директора", xml)
+        self.assertIn("Иванова Д.В.", xml)
+        self.assertIn("Прошу выдать картридж", xml)
+        self.assertIn("г.", xml)
+        self.assertNotIn("{{", xml)
+
+    def test_ticket_document_print_returns_inline_pdf(self):
+        response = self.client.get(
+            reverse("ticket_document_print", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        content_disposition = _decode_header_value(response["Content-Disposition"])
+        self.assertIn("inline;", content_disposition)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
 
 
 class LogoutTests(TestCase):

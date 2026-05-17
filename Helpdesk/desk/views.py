@@ -11,7 +11,7 @@ from django.contrib.auth.views import LogoutView
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -19,6 +19,13 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.generic.edit import CreateView
 
+from .document_exports import (
+    TICKET_TEMPLATE_PATH,
+    build_ticket_docx_filename,
+    build_ticket_pdf_filename,
+    render_ticket_docx,
+    render_ticket_pdf,
+)
 from .forms import (
     LoginForm,
     PasswordUpdateForm,
@@ -40,7 +47,6 @@ from .models import (
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
-
 def _current_timestamp():
     return timezone.localtime().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -55,12 +61,14 @@ def _get_user_display_name(user):
         return user.get_username()
 
 
+
 def _get_user_profile(user):
     profile, _ = UserProfile.objects.get_or_create(
         user=user,
         defaults={"verbose_name": user.get_username()},
     )
     return profile
+
 
 
 def _get_notification_email(user):
@@ -787,6 +795,37 @@ def download_document(request, document_id):
 
     filename = os.path.basename(document.file.name)
     return FileResponse(file_handle, as_attachment=True, filename=filename)
+
+
+@login_required
+def ticket_document_download(request, ticket_id):
+    current_ticket = get_object_or_404(Ticket, pk=ticket_id)
+    if not _can_view_ticket(request.user, current_ticket):
+        raise Http404("Page not found")
+
+    if not TICKET_TEMPLATE_PATH.exists():
+        raise Http404("Document template not found")
+
+    response = HttpResponse(
+        render_ticket_docx(current_ticket),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{build_ticket_docx_filename(current_ticket)}"'
+    return response
+
+
+@login_required
+def ticket_document_print(request, ticket_id):
+    current_ticket = get_object_or_404(Ticket, pk=ticket_id)
+    if not _can_view_ticket(request.user, current_ticket):
+        raise Http404("Page not found")
+
+    response = HttpResponse(
+        render_ticket_pdf(current_ticket),
+        content_type="application/pdf",
+    )
+    response["Content-Disposition"] = f'inline; filename="{build_ticket_pdf_filename(current_ticket)}"'
+    return response
 
 
 @login_required

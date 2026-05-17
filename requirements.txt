@@ -1,8 +1,12 @@
 asgiref>=3.8,<4
 dj-database-url>=2.2,<4
 Django==6.0.5
+docxtpl>=0.20,<1
 django-widget-tweaks>=1.5,<2
 gunicorn>=23,<24
+reportlab>=4.2,<5
+python-docx>=1.1,<2
+pymorphy3>=2.0,<3
 psycopg[binary]>=3.1.12,<4
 python-decouple>=3.8,<4
 sqlparse>=0.5,<1

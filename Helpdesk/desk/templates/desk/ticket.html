@@ -489,12 +489,12 @@
                 <img src="{% static './images/icons/edit.svg' %}" alt="">
             </button>
             {% endif %}
-            <button class="ticket-action-button" type="button" title="Распечатать" aria-label="Распечатать">
+            <a class="ticket-action-button" href="{% url 'ticket_document_print' current_ticket.id %}" target="_blank" rel="noopener" title="Распечатать" aria-label="Распечатать">
                 <img src="{% static './images/icons/print.svg' %}" alt="">
-            </button>
-            <button class="ticket-action-button" type="button" title="Скачать" aria-label="Скачать">
+            </a>
+            <a class="ticket-action-button" href="{% url 'ticket_document_download' current_ticket.id %}" title="Скачать" aria-label="Скачать">
                 <img src="{% static './images/icons/download.svg' %}" alt="">
-            </button>
+            </a>
             <button class="ticket-action-button" type="button" title="Ссылка" aria-label="Ссылка">
                 <img src="{% static './images/icons/link.svg' %}" alt="">
             </button>
