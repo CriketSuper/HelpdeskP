@@ -62,3 +62,24 @@ Application startup inside the `web` container runs:
 - `python manage.py migrate --noinput`
 - `python manage.py collectstatic --noinput`
 - `gunicorn helpdesk.wsgi:application --bind 0.0.0.0:8000`
+
+Backups:
+
+- Copy `backup.env.example` to `backup.env`
+- Set `BACKUP_MODE=docker` for the current compose stack, or `host` if you run PostgreSQL and media outside Docker
+- Adjust `BACKUP_ROOT`, PostgreSQL credentials, and media paths
+
+Available scripts:
+
+- `scripts/backup.sh` creates a timestamped PostgreSQL dump, media archive, and logs archive
+- `scripts/cleanup_backups.sh` removes backup directories older than `RETENTION_DAYS`
+- `scripts/restore_db.sh <backup_dir_or_db.dump>` restores the database
+- `scripts/restore_media.sh <backup_dir_or_media.tar.gz>` restores media files
+- `scripts/restore_logs.sh <backup_dir_or_logs.tar.gz>` restores application logs
+
+Example cron:
+
+```cron
+0 2 * * * /srv/Helpdesk/scripts/backup.sh >> /var/log/helpdesk-backup.log 2>&1
+30 2 * * * /srv/Helpdesk/scripts/cleanup_backups.sh >> /var/log/helpdesk-backup.log 2>&1
+```
