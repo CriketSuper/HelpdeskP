@@ -233,6 +233,53 @@
         color: #6c757d;
     }
 
+    .executor-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .executor-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        max-width: 100%;
+        padding: 0.45rem 0.7rem;
+        border: 1px solid #cfe2ff;
+        border-radius: 999px;
+        background: #eef5ff;
+        color: #0a58ca;
+        font-size: 0.95rem;
+        line-height: 1.2;
+    }
+
+    .executor-chip-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .executor-chip-remove {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0;
+    }
+
+    .executor-chip-remove:hover {
+        color: #084298;
+    }
+
+    .executor-help-text {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
     .upload-widget {
         padding: 1rem;
         border: 1px dashed #cfd8e3;
@@ -682,6 +729,38 @@
                                         {% endif %}
                                     </div>
                                 </div>
+                                <div class="mb-3">
+                                    <h5 class="fw-bold">Соисполнители:</h5>
+                                    {% if can_manage_multiple_executors %}
+                                    <div id="ticket-additional-executor-hidden-inputs">
+                                        {% for executor_id in selected_additional_executor_ids %}
+                                        <input type="hidden" name="additional_executors" value="{{ executor_id }}">
+                                        {% endfor %}
+                                    </div>
+                                    <div class="executor-search-wrap">
+                                        <input
+                                            type="text"
+                                            id="ticket-additional-executor-search"
+                                            class="form-control"
+                                            autocomplete="off"
+                                            placeholder="Добавьте соисполнителей"
+                                            value=""
+                                        >
+                                        <div id="ticket-additional-executor-results" class="executor-search-results"></div>
+                                    </div>
+                                    <div class="executor-chip-list" id="ticket-additional-executor-list"></div>
+                                    {% else %}
+                                    <div class="executor-chip-list">
+                                        {% for executor in current_ticket.additional_executors.all %}
+                                        <span class="executor-chip">
+                                            <span class="executor-chip-label">{% if executor.profile %}{{ executor.profile }}{% else %}{{ executor.username }}{% endif %}</span>
+                                        </span>
+                                        {% empty %}
+                                        <p class="fw-light mb-0">Соисполнители не назначены.</p>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
                             </form>
                             {% else %}
                             <div class="row mb-3">
@@ -692,6 +771,18 @@
                                 <div class="col-md-6">
                                     <h5 class="fw-bold">Статус заявки:</h5>
                                     <p class="fw-light">{{ current_ticket.progress }}</p>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <h5 class="fw-bold">Соисполнители:</h5>
+                                <div class="executor-chip-list">
+                                    {% for executor in current_ticket.additional_executors.all %}
+                                    <span class="executor-chip">
+                                        <span class="executor-chip-label">{% if executor.profile %}{{ executor.profile }}{% else %}{{ executor.username }}{% endif %}</span>
+                                    </span>
+                                    {% empty %}
+                                    <p class="fw-light mb-0">Соисполнители не назначены.</p>
+                                    {% endfor %}
                                 </div>
                             </div>
                             {% endif %}
@@ -886,6 +977,10 @@
     const technicianSearchInput = document.getElementById("ticket-technician-search");
     const technicianIdInput = document.getElementById("ticket-technician-id");
     const technicianResults = document.getElementById("ticket-technician-results");
+    const additionalExecutorSearchInput = document.getElementById("ticket-additional-executor-search");
+    const additionalExecutorResults = document.getElementById("ticket-additional-executor-results");
+    const additionalExecutorList = document.getElementById("ticket-additional-executor-list");
+    const additionalExecutorHiddenInputs = document.getElementById("ticket-additional-executor-hidden-inputs");
     const maxFileSizeBytes = {{ max_upload_size_mb }} * 1024 * 1024;
     const ticketBaseUrl = `${window.location.origin}{% url 'ticket' current_ticket.id %}`;
     const techniciansData = [
@@ -914,7 +1009,13 @@
         default: "{% static 'images/doc_icons/basic_file.png' %}",
     };
     let activeTechnicianIndex = -1;
+    let activeAdditionalExecutorIndex = -1;
     let selectedChatDocuments = [];
+    let selectedAdditionalExecutors = [
+        {% for executor_id in selected_additional_executor_ids %}
+        "{{ executor_id|escapejs }}",
+        {% endfor %}
+    ];
     const movementState = {
         scale: 1,
         translateX: 0,
@@ -1298,6 +1399,14 @@
         return Array.from(technicianResults.querySelectorAll(".executor-search-option"));
     }
 
+    function getAdditionalExecutorOptions() {
+        if (!additionalExecutorResults) {
+            return [];
+        }
+
+        return Array.from(additionalExecutorResults.querySelectorAll(".executor-search-option"));
+    }
+
     function setActiveTechnician(index) {
         const options = getTechnicianOptions();
         activeTechnicianIndex = index;
@@ -1321,6 +1430,16 @@
         activeTechnicianIndex = -1;
     }
 
+    function closeAdditionalExecutorResults() {
+        if (!additionalExecutorResults) {
+            return;
+        }
+
+        additionalExecutorResults.classList.remove("is-open");
+        additionalExecutorResults.innerHTML = "";
+        activeAdditionalExecutorIndex = -1;
+    }
+
     function selectTechnician(user) {
         if (!technicianSearchInput || !technicianIdInput) {
             return;
@@ -1329,6 +1448,77 @@
         technicianSearchInput.value = user.name;
         technicianIdInput.value = user.id;
         closeTechnicianResults();
+        renderAdditionalExecutorChips();
+    }
+
+    function syncAdditionalExecutorHiddenInputs() {
+        if (!additionalExecutorHiddenInputs) {
+            return;
+        }
+
+        additionalExecutorHiddenInputs.innerHTML = "";
+        selectedAdditionalExecutors.forEach((executorId) => {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "additional_executors";
+            input.value = executorId;
+            additionalExecutorHiddenInputs.appendChild(input);
+        });
+    }
+
+    function renderAdditionalExecutorChips() {
+        if (!additionalExecutorList) {
+            return;
+        }
+
+        additionalExecutorList.innerHTML = "";
+        const currentPrimaryId = technicianIdInput?.value || "";
+        selectedAdditionalExecutors = selectedAdditionalExecutors.filter((executorId) => executorId !== currentPrimaryId);
+
+        if (selectedAdditionalExecutors.length === 0) {
+            additionalExecutorList.innerHTML = '<span class="text-muted">Соисполнители не выбраны.</span>';
+            syncAdditionalExecutorHiddenInputs();
+            return;
+        }
+
+        selectedAdditionalExecutors.forEach((executorId) => {
+            const user = techniciansData.find((item) => item.id === executorId);
+            if (!user) {
+                return;
+            }
+
+            const chip = document.createElement("span");
+            chip.className = "executor-chip";
+            chip.innerHTML = `
+                <span class="executor-chip-label">${user.name}</span>
+                <button type="button" class="executor-chip-remove" aria-label="Удалить соисполнителя">&times;</button>
+            `;
+            chip.querySelector(".executor-chip-remove").addEventListener("click", () => {
+                selectedAdditionalExecutors = selectedAdditionalExecutors.filter((item) => item !== executorId);
+                renderAdditionalExecutorChips();
+            });
+            additionalExecutorList.appendChild(chip);
+        });
+
+        syncAdditionalExecutorHiddenInputs();
+    }
+
+    function selectAdditionalExecutor(user) {
+        if (!additionalExecutorSearchInput) {
+            return;
+        }
+
+        const currentPrimaryId = technicianIdInput?.value || "";
+        if (user.id === currentPrimaryId || selectedAdditionalExecutors.includes(user.id)) {
+            additionalExecutorSearchInput.value = "";
+            closeAdditionalExecutorResults();
+            return;
+        }
+
+        selectedAdditionalExecutors.push(user.id);
+        additionalExecutorSearchInput.value = "";
+        closeAdditionalExecutorResults();
+        renderAdditionalExecutorChips();
     }
 
     function renderTechnicianResults(query) {
@@ -1371,6 +1561,64 @@
         setActiveTechnician(filteredUsers.length > 0 ? 0 : -1);
     }
 
+    function setActiveAdditionalExecutor(index) {
+        const options = getAdditionalExecutorOptions();
+        activeAdditionalExecutorIndex = index;
+
+        options.forEach((option, optionIndex) => {
+            option.classList.toggle("is-active", optionIndex === activeAdditionalExecutorIndex);
+        });
+
+        if (activeAdditionalExecutorIndex >= 0 && options[activeAdditionalExecutorIndex]) {
+            options[activeAdditionalExecutorIndex].scrollIntoView({ block: "nearest" });
+        }
+    }
+
+    function renderAdditionalExecutorResults(query) {
+        if (!additionalExecutorResults) {
+            return;
+        }
+
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery) {
+            closeAdditionalExecutorResults();
+            return;
+        }
+
+        const currentPrimaryId = technicianIdInput?.value || "";
+        const filteredUsers = techniciansData
+            .filter((user) => (
+                user.id !== currentPrimaryId
+                && !selectedAdditionalExecutors.includes(user.id)
+                && (
+                    user.name.toLowerCase().includes(normalizedQuery)
+                    || user.username.toLowerCase().includes(normalizedQuery)
+                )
+            ))
+            .slice(0, 8);
+
+        if (filteredUsers.length === 0) {
+            closeAdditionalExecutorResults();
+            return;
+        }
+
+        additionalExecutorResults.innerHTML = "";
+        filteredUsers.forEach((user) => {
+            const option = document.createElement("button");
+            option.type = "button";
+            option.className = "executor-search-option";
+            option.innerHTML = `
+                <div class="executor-search-name">${user.name}</div>
+                <div class="executor-search-meta">${user.username}</div>
+            `;
+            option.addEventListener("click", () => selectAdditionalExecutor(user));
+            additionalExecutorResults.appendChild(option);
+        });
+
+        additionalExecutorResults.classList.add("is-open");
+        setActiveAdditionalExecutor(filteredUsers.length > 0 ? 0 : -1);
+    }
+
     function resolveTypedTechnician() {
         if (!technicianSearchInput || !technicianIdInput) {
             return;
@@ -1385,15 +1633,18 @@
         if (matchedUser) {
             technicianIdInput.value = matchedUser.id;
             technicianSearchInput.value = matchedUser.name;
+            renderAdditionalExecutorChips();
             return;
         }
 
         if (!normalizedValue) {
             technicianIdInput.value = "";
+            renderAdditionalExecutorChips();
             return;
         }
 
         technicianIdInput.value = "";
+        renderAdditionalExecutorChips();
     }
 
     statusChecks.forEach((checkbox) => {
@@ -1481,6 +1732,66 @@
             if (!technicianResults.contains(event.target) && event.target !== technicianSearchInput) {
                 resolveTypedTechnician();
                 closeTechnicianResults();
+            }
+        });
+    }
+
+    if (additionalExecutorSearchInput && additionalExecutorResults && additionalExecutorList) {
+        renderAdditionalExecutorChips();
+
+        additionalExecutorSearchInput.addEventListener("input", () => {
+            renderAdditionalExecutorResults(additionalExecutorSearchInput.value);
+        });
+
+        additionalExecutorSearchInput.addEventListener("focus", () => {
+            if (additionalExecutorSearchInput.value.trim()) {
+                renderAdditionalExecutorResults(additionalExecutorSearchInput.value);
+            }
+        });
+
+        additionalExecutorSearchInput.addEventListener("keydown", (event) => {
+            const options = getAdditionalExecutorOptions();
+            if (!additionalExecutorResults.classList.contains("is-open") || options.length === 0) {
+                return;
+            }
+
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                const nextIndex = activeAdditionalExecutorIndex < options.length - 1 ? activeAdditionalExecutorIndex + 1 : 0;
+                setActiveAdditionalExecutor(nextIndex);
+                return;
+            }
+
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                const previousIndex = activeAdditionalExecutorIndex > 0 ? activeAdditionalExecutorIndex - 1 : options.length - 1;
+                setActiveAdditionalExecutor(previousIndex);
+                return;
+            }
+
+            if (event.key === "Enter" && activeAdditionalExecutorIndex >= 0) {
+                event.preventDefault();
+                options[activeAdditionalExecutorIndex].click();
+                return;
+            }
+
+            if (event.key === "Escape") {
+                closeAdditionalExecutorResults();
+            }
+        });
+
+        additionalExecutorSearchInput.addEventListener("blur", () => {
+            window.setTimeout(() => {
+                closeAdditionalExecutorResults();
+            }, 120);
+        });
+
+        document.addEventListener("click", (event) => {
+            if (
+                !additionalExecutorResults.contains(event.target)
+                && event.target !== additionalExecutorSearchInput
+            ) {
+                closeAdditionalExecutorResults();
             }
         });
     }

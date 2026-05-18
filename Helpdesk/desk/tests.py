@@ -204,6 +204,16 @@ class TicketAccessTests(TestCase):
             {self.assigned_ticket.pk, self.created_by_executor_ticket.pk},
         )
 
+    def test_executor_sees_ticket_as_additional_executor(self):
+        self.assigned_ticket.additional_executors.add(self.executor_2)
+
+        self.client.force_login(self.executor_2)
+        response = self.client.get(reverse("index"))
+
+        self.assertEqual(response.status_code, 200)
+        ticket_ids = {ticket.pk for ticket in response.context["tickets"]}
+        self.assertIn(self.assigned_ticket.pk, ticket_ids)
+
     def test_regular_user_sees_only_own_tickets(self):
         self.client.force_login(self.user)
 
@@ -396,6 +406,47 @@ class TicketAccessTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_executor_can_assign_additional_executors(self):
+        self.client.force_login(self.executor_1)
+
+        response = self.client.post(
+            reverse("send_message", kwargs={"ticket_id": self.assigned_ticket.pk}),
+            {
+                "save-ticket": "true",
+                "technician": self.executor_1.pk,
+                "progress": self.assigned_ticket.progress,
+                "additional_executors": [str(self.executor_2.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assigned_ticket.refresh_from_db()
+        self.assertEqual(
+            list(self.assigned_ticket.additional_executors.values_list("pk", flat=True)),
+            [self.executor_2.pk],
+        )
+        self.assertTrue(
+            any("Соисполнители заявки изменены" in entry.get("message", "") for entry in self.assigned_ticket.chat)
+        )
+
+    def test_additional_executor_can_manage_ticket_workflow(self):
+        self.assigned_ticket.additional_executors.add(self.executor_2)
+
+        self.client.force_login(self.executor_2)
+        response = self.client.post(
+            reverse("send_message", kwargs={"ticket_id": self.assigned_ticket.pk}),
+            {
+                "save-ticket": "true",
+                "technician": self.executor_1.pk,
+                "progress": Ticket.Progres.INPROGRESS,
+                "additional_executors": [str(self.executor_2.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assigned_ticket.refresh_from_db()
+        self.assertEqual(self.assigned_ticket.progress, Ticket.Progres.INPROGRESS)
 
 
 class TicketDocumentFlowTests(TestCase):

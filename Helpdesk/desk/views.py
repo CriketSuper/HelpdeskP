@@ -40,6 +40,7 @@ from .models import (
     Ticket,
     UserProfile,
     admin_group_name,
+    director_group_name,
     executor_group_name,
     get_assignable_technicians,
     get_default_technician_user,
@@ -306,17 +307,30 @@ def _is_executor(user):
     return user.groups.filter(name=executor_group_name).exists()
 
 
+def _is_workflow_executor(user):
+    return user.groups.filter(
+        Q(name=executor_group_name) | Q(name=director_group_name)
+    ).exists()
+
+
 def _can_view_ticket(user, ticket):
     return (
         _is_admin(user)
         or ticket.created_by == user
         or ticket.technician == user
+        or ticket.additional_executors.filter(pk=user.pk).exists()
         or ticket.participants.filter(pk=user.pk).exists()
     )
 
 
 def _can_manage_ticket_workflow(user, ticket):
-    return _is_admin(user) or (_is_executor(user) and ticket.technician == user)
+    return _is_admin(user) or (
+        _is_workflow_executor(user)
+        and (
+            ticket.technician == user
+            or ticket.additional_executors.filter(pk=user.pk).exists()
+        )
+    )
 
 
 def _can_change_ticket_status(user, ticket):
@@ -430,6 +444,28 @@ def _build_movement_events(ticket):
                             f"Время: {event_time}" if event_time else "",
                             f"Новый статус: {progress}" if progress else "",
                             f"Кем изменён: {actor}" if actor else "",
+                        ]
+                        if part
+                    ),
+                }
+            )
+        elif event_type == "co_assignment":
+            added_assignees = event_meta.get("added_assignees", "")
+            removed_assignees = event_meta.get("removed_assignees", "")
+            actor = event_meta.get("actor", "")
+            subtitle_parts = [part for part in [added_assignees, removed_assignees] if part]
+            events.append(
+                {
+                    "title": "Изменены соисполнители",
+                    "subtitle": " / ".join(subtitle_parts),
+                    "time": event_time,
+                    "tooltip": "\n".join(
+                        part
+                        for part in [
+                            f"Время: {event_time}" if event_time else "",
+                            f"Кем изменены: {actor}" if actor else "",
+                            f"Добавлены: {added_assignees}" if added_assignees else "",
+                            f"Сняты: {removed_assignees}" if removed_assignees else "",
                         ]
                         if part
                     ),
@@ -600,10 +636,11 @@ def profile_settings(request):
 def index(request):
     if _is_admin(request.user):
         tickets = Ticket.objects.all()
-    elif _is_executor(request.user):
+    elif _is_workflow_executor(request.user):
         tickets = Ticket.objects.filter(
             Q(created_by=request.user)
             | Q(technician=request.user)
+            | Q(additional_executors=request.user)
             | Q(participants=request.user)
         ).distinct()
     else:
@@ -699,16 +736,20 @@ def ticket(request, **kwargs):
 
     can_manage_ticket_workflow = _can_manage_ticket_workflow(request.user, current_ticket)
     users = get_assignable_technicians()
+    additional_executors = list(current_ticket.additional_executors.all())
 
     context = {
         "current_ticket": current_ticket,
         "can_assign_technician": can_manage_ticket_workflow,
         "can_edit_progress": can_manage_ticket_workflow,
+        "can_manage_multiple_executors": can_manage_ticket_workflow and _is_workflow_executor(request.user),
         "can_edit_ticket_details": _can_edit_ticket_details(request.user, current_ticket),
         "can_change_ticket_status": _can_change_ticket_status(request.user, current_ticket),
         "can_manage_documents": _can_manage_ticket_documents(request.user, current_ticket),
         "movement_events": _build_movement_events(current_ticket),
         "users": users,
+        "selected_additional_executor_ids": [user.pk for user in additional_executors],
+        "selected_additional_executor_names": [_get_user_display_name(user) for user in additional_executors],
         "max_upload_size_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 200),
     }
     return render(request, "desk/ticket.html", context)
@@ -887,6 +928,7 @@ def send_message(request, ticket_id):
         request.user,
         current_ticket.created_by,
         current_ticket.technician,
+        *current_ticket.additional_executors.all(),
     )
 
     if "delete-document" in request.POST:
@@ -930,6 +972,9 @@ def send_message(request, ticket_id):
         changes = []
         actor_name = _get_user_display_name(request.user)
         previous_technician = current_ticket.technician
+        previous_additional_executors = list(current_ticket.additional_executors.all())
+        previous_additional_executor_ids = {user.pk for user in previous_additional_executors}
+        pending_additional_executors = previous_additional_executors
 
         technician_id = request.POST.get("technician")
         if technician_id:
@@ -967,6 +1012,63 @@ def send_message(request, ticket_id):
                     level=Notification.Levels.SUCCESS,
                 )
 
+        requested_additional_executor_ids = []
+        for value in request.POST.getlist("additional_executors"):
+            if not value:
+                continue
+            if value == str(current_ticket.technician_id):
+                continue
+            if value not in requested_additional_executor_ids:
+                requested_additional_executor_ids.append(value)
+
+        selected_additional_executors = list(
+            get_assignable_technicians().filter(pk__in=requested_additional_executor_ids)
+        )
+        selected_additional_executors.sort(
+            key=lambda user: requested_additional_executor_ids.index(str(user.pk))
+            if str(user.pk) in requested_additional_executor_ids
+            else 0
+        )
+        selected_additional_executor_ids = {user.pk for user in selected_additional_executors}
+
+        if selected_additional_executor_ids != previous_additional_executor_ids:
+            added_executors = [
+                user for user in selected_additional_executors if user.pk not in previous_additional_executor_ids
+            ]
+            removed_executors = [
+                user for user in previous_additional_executors if user.pk not in selected_additional_executor_ids
+            ]
+            pending_additional_executors = selected_additional_executors
+
+            change_parts = []
+            event_meta = {"actor": actor_name}
+            if added_executors:
+                added_names = ", ".join(_get_user_display_name(user) for user in added_executors)
+                change_parts.append(f"добавлены соисполнители: {added_names}")
+                event_meta["added_assignees"] = added_names
+            if removed_executors:
+                removed_names = ", ".join(_get_user_display_name(user) for user in removed_executors)
+                change_parts.append(f"сняты соисполнители: {removed_names}")
+                event_meta["removed_assignees"] = removed_names
+
+            changes.append(
+                (
+                    f"Соисполнители заявки изменены пользователем {actor_name}: {'; '.join(change_parts)}",
+                    "co_assignment",
+                    event_meta,
+                )
+            )
+
+            if added_executors:
+                _notify_ticket_users(
+                    "Вас подключили к заявке",
+                    f'Вы назначены соисполнителем по заявке №{current_ticket.id} с темой "{current_ticket.title}".',
+                    *added_executors,
+                    ticket=current_ticket,
+                    exclude_user=request.user,
+                    level=Notification.Levels.SUCCESS,
+                )
+
         new_progress = request.POST.get("progress")
         if new_progress in Ticket.Progres.values and current_ticket.progress != new_progress:
             current_ticket.progress = new_progress
@@ -991,18 +1093,22 @@ def send_message(request, ticket_id):
 
         if changes:
             current_ticket.save()
+            current_ticket.additional_executors.set(pending_additional_executors)
             _add_ticket_participants(
                 current_ticket,
                 request.user,
                 current_ticket.created_by,
                 previous_technician,
                 current_ticket.technician,
+                *previous_additional_executors,
+                *pending_additional_executors,
             )
             _notify_ticket_users(
                 "Обновление по заявке",
                 f'По заявке №{current_ticket.id} появились изменения.',
                 current_ticket.created_by,
                 current_ticket.technician,
+                *pending_additional_executors,
                 *current_ticket.participants.all(),
                 ticket=current_ticket,
                 exclude_user=request.user,

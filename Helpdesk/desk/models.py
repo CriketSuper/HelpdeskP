@@ -97,6 +97,16 @@ class Ticket(models.Model):
         default=get_default_technician,
         related_name="assigned_tickets",
     )
+    additional_executors = models.ManyToManyField(
+        User,
+        blank=True,
+        related_name="co_assigned_tickets",
+        verbose_name="Соисполнители",
+        limit_choices_to=(
+            models.Q(groups__name=director_group_name)
+            | models.Q(groups__name=executor_group_name)
+        ),
+    )
     participants = models.ManyToManyField(
         User,
         blank=True,
