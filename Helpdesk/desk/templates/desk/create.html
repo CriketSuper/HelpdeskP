@@ -225,6 +225,7 @@
     <div class="ticket-create-card">
         <form method="post" enctype="multipart/form-data" id="ticket-create-form">
             {% csrf_token %}
+            <input type="hidden" name="submission_token" value="{{ create_submission_token }}">
 
             {% if form.non_field_errors %}
             <div class="alert alert-danger">
@@ -294,7 +295,7 @@
                 </div>
 
                 <div class="full-width d-flex justify-content-end">
-                    <button type="submit" class="btn btn-primary px-4">Добавить заявку</button>
+                    <button type="submit" class="btn btn-primary px-4" id="ticket-create-submit">Создать</button>
                 </div>
             </div>
         </form>
@@ -310,6 +311,8 @@
     const documentsPreviewGrid = document.getElementById("documents-preview-grid");
     const documentsEmptyText = document.getElementById("documents-empty-text");
     const documentsUploadWidget = documentsPreviewGrid?.closest(".upload-widget");
+    const ticketCreateForm = document.getElementById("ticket-create-form");
+    const ticketCreateSubmit = document.getElementById("ticket-create-submit");
     const techniciansData = [
         {% for user in technician_users %}
         {
@@ -657,6 +660,16 @@
                 resolveTypedTechnician();
                 closeTechnicianResults();
             }
+        });
+    }
+
+    if (ticketCreateForm && ticketCreateSubmit) {
+        ticketCreateForm.addEventListener("submit", () => {
+            if (ticketCreateSubmit.disabled) {
+                return;
+            }
+            ticketCreateSubmit.disabled = true;
+            ticketCreateSubmit.textContent = "Создание...";
         });
     }
 </script>

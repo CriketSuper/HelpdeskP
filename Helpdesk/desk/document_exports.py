@@ -18,6 +18,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .rich_text import rich_text_has_text, rich_text_to_plain_text, sanitize_rich_text
+from .models import UserProfile
 
 
 TICKET_TEMPLATE_PATH = Path(settings.BASE_DIR) / "static" / "docs" / "ticket_template.docx"
@@ -122,7 +123,7 @@ def _get_user_source_name(user):
         return ""
     try:
         return user.profile.verbose_name
-    except Exception:
+    except UserProfile.DoesNotExist:
         return user.get_username()
 
 
@@ -131,7 +132,7 @@ def _get_user_position(user):
         return ""
     try:
         return (user.profile.position or "").strip()
-    except Exception:
+    except UserProfile.DoesNotExist:
         return ""
 
 

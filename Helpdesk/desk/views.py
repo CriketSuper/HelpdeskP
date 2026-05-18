@@ -1,6 +1,7 @@
 import logging
 import mimetypes
 import os
+import uuid
 
 from django.conf import settings
 from django.contrib import messages
@@ -11,6 +12,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LogoutView
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -602,6 +604,7 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
         context["technician_users"] = technician_users
         context["selected_technician_id"] = selected_technician.pk if selected_technician else ""
         context["selected_technician_name"] = _get_user_display_name(selected_technician)
+        context["create_submission_token"] = uuid.uuid4().hex
         return context
 
     def form_valid(self, form):
@@ -612,8 +615,23 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
             messages.error(self.request, validation_error)
             return self.form_invalid(form)
 
+        submission_token = (self.request.POST.get("submission_token") or "").strip() or uuid.uuid4().hex
         form.instance.created_by = self.request.user
-        response = super().form_valid(form)
+        form.instance.submission_token = submission_token
+
+        try:
+            with transaction.atomic():
+                response = super().form_valid(form)
+        except IntegrityError:
+            existing_ticket = Ticket.objects.filter(
+                submission_token=submission_token,
+                created_by=self.request.user,
+            ).first()
+            if existing_ticket is None:
+                raise
+
+            messages.info(self.request, f"Заявка №{existing_ticket.pk} уже была создана.")
+            return redirect("ticket", ticket_id=existing_ticket.pk)
 
         for document in documents:
             if document:
@@ -644,11 +662,6 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
 
 class MyLogoutView(LogoutView):
     next_page = reverse_lazy("login")
-
-    def dispatch(self, request, *args, **kwargs):
-        response = super().dispatch(request, *args, **kwargs)
-        previous_page = request.session.pop("previous_page", None)
-        return response if previous_page is None else redirect(previous_page)
 
 
 def Login_View(request):
@@ -827,7 +840,6 @@ def ticket(request, **kwargs):
         "movement_events": _build_movement_events(current_ticket),
         "users": users,
         "selected_additional_executor_ids": [user.pk for user in additional_executors],
-        "selected_additional_executor_names": [_get_user_display_name(user) for user in additional_executors],
         "max_upload_size_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 200),
     }
     return render(request, "desk/ticket.html", context)

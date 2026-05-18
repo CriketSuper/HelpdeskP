@@ -713,7 +713,6 @@ class TicketCreateTests(TestCase):
                 "content": "Текст заявки",
                 "criticalness": Ticket.Kinds.MEDIUM,
                 "technician": self.executor.pk,
-                "document_names": [""],
             },
         )
 
@@ -730,7 +729,6 @@ class TicketCreateTests(TestCase):
                 "content": '<p><strong>Need support</strong></p><script>alert(1)</script>',
                 "criticalness": Ticket.Kinds.MEDIUM,
                 "technician": self.executor.pk,
-                "document_names": [""],
             },
         )
 
@@ -747,7 +745,6 @@ class TicketCreateTests(TestCase):
                 "content": "<div>First line</div><div>Second line</div>",
                 "criticalness": Ticket.Kinds.MEDIUM,
                 "technician": self.executor.pk,
-                "document_names": [""],
             },
         )
 
@@ -764,7 +761,6 @@ class TicketCreateTests(TestCase):
                 "criticalness": Ticket.Kinds.MEDIUM,
                 "technician": self.executor.pk,
                 "deadline": "2026-05-20T14:30",
-                "document_names": [""],
             },
         )
 
@@ -773,6 +769,26 @@ class TicketCreateTests(TestCase):
         self.assertIsNotNone(ticket.deadline)
         localized_deadline = timezone.localtime(ticket.deadline)
         self.assertEqual(localized_deadline.strftime("%Y-%m-%dT%H:%M"), "2026-05-20T14:30")
+
+    def test_duplicate_ticket_submission_token_creates_only_one_ticket(self):
+        submission_token = "fixedsubmissiontoken1234567890ab"
+        payload = {
+            "title": "Single submit ticket",
+            "content": "Only one ticket should be created",
+            "criticalness": Ticket.Kinds.MEDIUM,
+            "technician": self.executor.pk,
+            "submission_token": submission_token,
+        }
+
+        first_response = self.client.post(reverse("add"), payload)
+        second_response = self.client.post(reverse("add"), payload)
+
+        self.assertEqual(first_response.status_code, 302)
+        self.assertEqual(second_response.status_code, 302)
+        created_tickets = Ticket.objects.filter(submission_token=submission_token)
+        self.assertEqual(created_tickets.count(), 1)
+        created_ticket = created_tickets.get()
+        self.assertEqual(second_response.url, reverse("ticket", kwargs={"ticket_id": created_ticket.pk}))
 
 
 class TicketDocumentExportTests(TestCase):
@@ -1108,7 +1124,6 @@ class NotificationTests(TestCase):
                 "content": "РќРѕРІР°СЏ Р·Р°СЏРІРєР°",
                 "criticalness": Ticket.Kinds.MEDIUM,
                 "technician": executor.pk,
-                "document_names": [""],
             },
         )
 
@@ -1202,7 +1217,6 @@ class NotificationTests(TestCase):
                 "content": "Новая заявка",
                 "criticalness": Ticket.Kinds.MEDIUM,
                 "technician": executor.pk,
-                "document_names": [""],
             },
         )
 

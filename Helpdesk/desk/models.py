@@ -140,6 +140,15 @@ class Ticket(models.Model):
         db_index=True,
         verbose_name="Дата и время изменения",
     )
+    submission_token = models.CharField(
+        max_length=32,
+        unique=True,
+        blank=True,
+        null=True,
+        db_index=True,
+        editable=False,
+        verbose_name="Токен создания",
+    )
     chat = models.JSONField(default=list, blank=True, verbose_name="Чат")
     documents = models.ManyToManyField(
         "Document",
