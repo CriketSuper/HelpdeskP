@@ -167,6 +167,65 @@ def _notify_users(subject, message, *users):
     return _notify(subject, message, recipients)
 
 
+def _format_ticket_datetime(value):
+    if not value:
+        return "не указан"
+
+    return timezone.localtime(value).strftime("%d.%m.%Y %H:%M")
+
+
+def _get_ticket_notification_link(ticket):
+    ticket_path = reverse("ticket", kwargs={"ticket_id": ticket.pk})
+    base_url = getattr(settings, "NOTIFICATION_BASE_URL", "").strip().rstrip("/")
+    return f"{base_url}{ticket_path}" if base_url else ticket_path
+
+
+def _build_ticket_email_body(ticket, event_summary, *, actor=None, details=None):
+    detail_lines = []
+    for detail in details or []:
+        cleaned_detail = (detail or "").strip()
+        if cleaned_detail:
+            detail_lines.append(cleaned_detail)
+
+    co_executor_names = [
+        _get_user_display_name(user)
+        for user in ticket.additional_executors.all()
+    ]
+
+    lines = [
+        f"{getattr(settings, 'ORGANIZATION_NAME', 'Helpdesk')}",
+        "",
+        f"Заявка №{ticket.pk}",
+        f"Тема: {ticket.title}",
+        f"Автор: {_get_user_display_name(ticket.created_by)}",
+        f"Основной исполнитель: {_get_user_display_name(ticket.technician) or 'не назначен'}",
+        f"Соисполнители: {', '.join(co_executor_names) if co_executor_names else 'не назначены'}",
+        f"Статус: {ticket.status}",
+        f"Этап: {ticket.progress}",
+        f"Дата создания: {_format_ticket_datetime(ticket.created_at)}",
+        f"Дата изменения: {_format_ticket_datetime(ticket.published)}",
+        f"Срок выполнения: {_format_ticket_datetime(ticket.deadline)}",
+        "",
+        f"Событие: {event_summary}",
+    ]
+
+    if actor:
+        lines.append(f"Инициатор: {actor}")
+
+    if detail_lines:
+        lines.append("")
+        lines.append("Детали:")
+        lines.extend(f"- {detail}" for detail in detail_lines)
+
+    lines.extend(
+        [
+            "",
+            f"Ссылка на заявку: {_get_ticket_notification_link(ticket)}",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _create_in_app_notifications(
     title,
     body,
@@ -204,6 +263,7 @@ def _notify_ticket_users(
     ticket=None,
     exclude_user=None,
     level=Notification.Levels.INFO,
+    email_body=None,
 ):
     recipients = _unique_users(*users, exclude_user=exclude_user)
     _create_in_app_notifications(
@@ -213,7 +273,7 @@ def _notify_ticket_users(
         ticket=ticket,
         level=level,
     )
-    _notify_users(title, body, *recipients)
+    _notify_users(title, email_body or body, *recipients)
 
 
 def _get_notification_collapse_key(notification):
@@ -560,6 +620,16 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
             ticket=form.instance,
             exclude_user=self.request.user,
             level=Notification.Levels.SUCCESS,
+            email_body=_build_ticket_email_body(
+                form.instance,
+                "Вам назначена новая заявка",
+                actor=_get_user_display_name(self.request.user),
+                details=[
+                    f'Тема заявки: "{form.cleaned_data["title"]}"',
+                    f"Критичность: {form.instance.criticalness}",
+                    f"Содержание: {rich_text_to_plain_text(form.instance.content)}",
+                ],
+            ),
         )
         return response
 
@@ -824,6 +894,12 @@ def ticket_edit(request, ticket_id):
                     ticket=updated_ticket,
                     exclude_user=request.user,
                     level=Notification.Levels.INFO,
+                    email_body=_build_ticket_email_body(
+                        updated_ticket,
+                        "Изменены основные данные заявки",
+                        actor=actor_name,
+                        details=change_messages,
+                    ),
                 )
                 messages.success(request, "Заявка обновлена.")
             else:
@@ -1010,6 +1086,15 @@ def send_message(request, ticket_id):
                     ticket=current_ticket,
                     exclude_user=request.user,
                     level=Notification.Levels.SUCCESS,
+                    email_body=_build_ticket_email_body(
+                        current_ticket,
+                        "Вы назначены основным исполнителем",
+                        actor=actor_name,
+                        details=[
+                            f"Предыдущий исполнитель: {previous_assignee or 'не назначен'}",
+                            f"Новый исполнитель: {_get_user_display_name(technician)}",
+                        ],
+                    ),
                 )
 
         requested_additional_executor_ids = []
@@ -1067,6 +1152,12 @@ def send_message(request, ticket_id):
                     ticket=current_ticket,
                     exclude_user=request.user,
                     level=Notification.Levels.SUCCESS,
+                    email_body=_build_ticket_email_body(
+                        current_ticket,
+                        "Вы назначены соисполнителем",
+                        actor=actor_name,
+                        details=change_parts,
+                    ),
                 )
 
         new_progress = request.POST.get("progress")
@@ -1113,6 +1204,12 @@ def send_message(request, ticket_id):
                 ticket=current_ticket,
                 exclude_user=request.user,
                 level=Notification.Levels.INFO,
+                email_body=_build_ticket_email_body(
+                    current_ticket,
+                    "Изменены параметры маршрутизации заявки",
+                    actor=actor_name,
+                    details=[message_text for message_text, _, _ in changes],
+                ),
             )
             messages.success(request, "Изменения по заявке сохранены.")
             return redirect("ticket", ticket_id=ticket_id)
@@ -1141,6 +1238,12 @@ def send_message(request, ticket_id):
             ticket=current_ticket,
             exclude_user=request.user,
             level=Notification.Levels.WARNING,
+            email_body=_build_ticket_email_body(
+                current_ticket,
+                "Заявка закрыта",
+                actor=actor_name,
+                details=[f"Заявка закрыта пользователем {actor_name}."],
+            ),
         )
         messages.success(request, "Заявка закрыта.")
         return redirect("index")
@@ -1167,6 +1270,12 @@ def send_message(request, ticket_id):
             ticket=current_ticket,
             exclude_user=request.user,
             level=Notification.Levels.WARNING,
+            email_body=_build_ticket_email_body(
+                current_ticket,
+                "Заявка открыта повторно",
+                actor=actor_name,
+                details=[f"Заявка повторно открыта пользователем {actor_name}."],
+            ),
         )
         messages.success(request, "Заявка открыта повторно.")
         return redirect("index")
@@ -1201,6 +1310,16 @@ def send_message(request, ticket_id):
 
     if uploaded_documents or rich_text_has_text(message_html):
         current_ticket.save()
+        notification_details = []
+        if rich_text_has_text(message_html):
+            notification_details.append(
+                f'Новое сообщение от {_get_user_display_name(request.user)}: "{message_text}"'
+            )
+        if uploaded_documents:
+            uploaded_names = ", ".join(document.file.name.rsplit("/", 1)[-1] for document in created_documents)
+            notification_details.append(
+                f"Прикреплены документы ({len(created_documents)}): {uploaded_names}"
+            )
         _notify_ticket_users(
             "Обновление по заявке",
             f'По заявке №{current_ticket.id} появилось новое сообщение.',
@@ -1210,6 +1329,12 @@ def send_message(request, ticket_id):
             ticket=current_ticket,
             exclude_user=request.user,
             level=Notification.Levels.INFO,
+            email_body=_build_ticket_email_body(
+                current_ticket,
+                "Новое сообщение в чате заявки",
+                actor=_get_user_display_name(request.user),
+                details=notification_details,
+            ),
         )
 
     return redirect("ticket", ticket_id=ticket_id)

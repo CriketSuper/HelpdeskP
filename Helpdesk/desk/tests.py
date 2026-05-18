@@ -1098,3 +1098,83 @@ class NotificationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Notification.objects.filter(user=executor).exists())
+
+    def test_ticket_assignment_email_contains_ticket_context(self):
+        executor_group = Group.objects.get(name=executor_group_name)
+        creator = User.objects.create_user(
+            username="creator-mail-body",
+            password="secret123",
+            email="creator-mail-body@example.com",
+        )
+        _create_profile(creator, "Создатель")
+
+        executor = User.objects.create_user(
+            username="executor-mail-body",
+            password="secret123",
+            email="executor-mail-body@example.com",
+        )
+        _create_profile(executor, "Исполнитель")
+        executor.groups.add(executor_group)
+
+        self.client.force_login(creator)
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "Инцидент",
+                "content": "Новая заявка",
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": executor.pk,
+                "document_names": [""],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["executor-mail-body@example.com"])
+        self.assertIn("Заявка №", mail.outbox[0].body)
+        self.assertIn("Событие: Вам назначена новая заявка", mail.outbox[0].body)
+        self.assertIn("Тема: Инцидент", mail.outbox[0].body)
+        self.assertIn("Критичность: Средняя", mail.outbox[0].body)
+        self.assertIn("Содержание: Новая заявка", mail.outbox[0].body)
+        self.assertIn("Ссылка на заявку: /desk/", mail.outbox[0].body)
+
+    def test_chat_notification_email_contains_actor_and_message(self):
+        executor_group = Group.objects.get(name=executor_group_name)
+        creator = User.objects.create_user(
+            username="creator-chat-mail",
+            password="secret123",
+            email="creator-chat@example.com",
+        )
+        _create_profile(creator, "Создатель чата")
+
+        executor = User.objects.create_user(
+            username="executor-chat-mail",
+            password="secret123",
+            email="executor-chat@example.com",
+        )
+        _create_profile(executor, "Исполнитель чата")
+        executor.groups.add(executor_group)
+
+        ticket = Ticket.objects.create(
+            title="Новый принтер",
+            content="Нужно согласование",
+            created_by=creator,
+            technician=executor,
+        )
+
+        self.client.force_login(creator)
+        response = self.client.post(
+            reverse("send_message", kwargs={"ticket_id": ticket.pk}),
+            {
+                "message_text": "<p>Прошу уточнить сроки поставки</p>",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["executor-chat@example.com"])
+        self.assertIn("Событие: Новое сообщение в чате заявки", mail.outbox[0].body)
+        self.assertIn("Инициатор: Создатель чата", mail.outbox[0].body)
+        self.assertIn('Новое сообщение от Создатель чата: "Прошу уточнить сроки поставки"', mail.outbox[0].body)
+        self.assertIn("Тема: Новый принтер", mail.outbox[0].body)
+        self.assertIn(f"Ссылка на заявку: /desk/{ticket.pk}/", mail.outbox[0].body)
