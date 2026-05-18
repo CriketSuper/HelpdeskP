@@ -43,17 +43,17 @@ class _RichTextParser(HTMLParser):
         super().__init__()
         self.blocks = []
         self._current_segments = []
-        self._inline_state = {"bold": False, "italic": False, "underline": False}
+        self._inline_depth = {"bold": 0, "italic": 0, "underline": 0}
         self._blockquote_depth = 0
         self._list_stack = []
 
     def handle_starttag(self, tag, attrs):
         if tag in {"strong", "b"}:
-            self._inline_state["bold"] = True
+            self._inline_depth["bold"] += 1
         elif tag in {"em", "i"}:
-            self._inline_state["italic"] = True
+            self._inline_depth["italic"] += 1
         elif tag == "u":
-            self._inline_state["underline"] = True
+            self._inline_depth["underline"] += 1
         elif tag == "blockquote":
             self._flush_block("paragraph")
             self._blockquote_depth += 1
@@ -73,11 +73,11 @@ class _RichTextParser(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in {"strong", "b"}:
-            self._inline_state["bold"] = False
+            self._inline_depth["bold"] = max(0, self._inline_depth["bold"] - 1)
         elif tag in {"em", "i"}:
-            self._inline_state["italic"] = False
+            self._inline_depth["italic"] = max(0, self._inline_depth["italic"] - 1)
         elif tag == "u":
-            self._inline_state["underline"] = False
+            self._inline_depth["underline"] = max(0, self._inline_depth["underline"] - 1)
         elif tag == "blockquote":
             self._flush_block("blockquote")
             self._blockquote_depth = max(0, self._blockquote_depth - 1)
@@ -101,9 +101,9 @@ class _RichTextParser(HTMLParser):
         self._current_segments.append(
             {
                 "text": text,
-                "bold": self._inline_state["bold"],
-                "italic": self._inline_state["italic"] or self._blockquote_depth > 0,
-                "underline": self._inline_state["underline"],
+                "bold": self._inline_depth["bold"] > 0,
+                "italic": self._inline_depth["italic"] > 0 or self._blockquote_depth > 0,
+                "underline": self._inline_depth["underline"] > 0,
             }
         )
 
@@ -333,26 +333,52 @@ def _append_docx_segment(rich_text, segment):
             rich_text.add("\n", font="Times New Roman", size=28)
 
 
-def _segment_to_pdf_markup(segment):
+def _segment_to_pdf_markup(segment, regular_font_name, bold_font_name, italic_font_name, bold_italic_font_name):
     text = escape(segment["text"]).replace("\n", "<br/>")
     if segment["underline"]:
         text = f"<u>{text}</u>"
-    if segment["italic"]:
-        text = f"<i>{text}</i>"
-    if segment["bold"]:
-        text = f"<b>{text}</b>"
+    font_name = regular_font_name
+    if segment["bold"] and segment["italic"]:
+        font_name = bold_italic_font_name
+    elif segment["bold"]:
+        font_name = bold_font_name
+    elif segment["italic"]:
+        font_name = italic_font_name
+    text = f'<font name="{font_name}">{text}</font>'
     return text
 
 
-def _build_pdf_content_flowables(value, regular_style, quote_style):
+def _build_pdf_content_flowables(
+    value,
+    regular_style,
+    quote_style,
+    regular_font_name,
+    bold_font_name,
+    italic_font_name,
+    bold_italic_font_name,
+):
     blocks = _parse_rich_text_blocks(value)
     if not blocks:
         plain_text = rich_text_to_plain_text(value)
-        return [Paragraph(escape(plain_text).replace("\n", "<br/>"), regular_style)]
+        return [
+            Paragraph(
+                f'<font name="{regular_font_name}">{escape(plain_text).replace("\n", "<br/>")}</font>',
+                regular_style,
+            )
+        ]
 
     flowables = []
     for block in blocks:
-        markup = "".join(_segment_to_pdf_markup(segment) for segment in block["segments"])
+        markup = "".join(
+            _segment_to_pdf_markup(
+                segment,
+                regular_font_name,
+                bold_font_name,
+                italic_font_name,
+                bold_italic_font_name,
+            )
+            for segment in block["segments"]
+        )
         style = quote_style if block["type"] == "blockquote" else regular_style
         flowables.append(Paragraph(markup, style))
         flowables.append(Spacer(1, 6))
@@ -421,25 +447,54 @@ def _register_pdf_fonts():
             Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
         ]
     )
+    italic_font_path = _find_font_path(
+        [
+            Path(settings.BASE_DIR) / "static" / "fonts" / "timesi.ttf",
+            Path("C:/Windows/Fonts/timesi.ttf"),
+            Path("/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman_Italic.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSerif-Italic.ttf"),
+            Path("/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"),
+        ]
+    )
+    bold_italic_font_path = _find_font_path(
+        [
+            Path(settings.BASE_DIR) / "static" / "fonts" / "timesbi.ttf",
+            Path("C:/Windows/Fonts/timesbi.ttf"),
+            Path("/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman_Bold_Italic.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSerif-BoldItalic.ttf"),
+            Path("/usr/share/fonts/truetype/liberation/LiberationSerif-BoldItalic.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-BoldItalic.ttf"),
+        ]
+    )
 
     if regular_font_path is None:
         raise FileNotFoundError("No serif font with Cyrillic support was found for PDF export.")
 
     regular_name = "TicketDocRegular"
     bold_name = "TicketDocBold"
-
+    italic_name = "TicketDocItalic"
+    bold_italic_name = "TicketDocBoldItalic"
     if regular_name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(regular_name, str(regular_font_path)))
     if bold_font_path is not None and bold_name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(bold_name, str(bold_font_path)))
+    if italic_font_path is not None and italic_name not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont(italic_name, str(italic_font_path)))
+    if bold_italic_font_path is not None and bold_italic_name not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont(bold_italic_name, str(bold_italic_font_path)))
     if bold_font_path is None:
         bold_name = regular_name
+    if italic_font_path is None:
+        italic_name = regular_name
+    if bold_italic_font_path is None:
+        bold_italic_name = bold_name if italic_name == regular_name else italic_name
 
-    return regular_name, bold_name
+    return regular_name, bold_name, italic_name, bold_italic_name
 
 
 def render_ticket_pdf(ticket):
-    regular_font_name, bold_font_name = _register_pdf_fonts()
+    regular_font_name, bold_font_name, italic_font_name, bold_italic_font_name = _register_pdf_fonts()
     context = build_ticket_document_context(ticket)
     buffer = BytesIO()
     document = SimpleDocTemplate(
@@ -511,7 +566,17 @@ def render_ticket_pdf(ticket):
     story.append(Spacer(1, 14))
     story.append(Paragraph("СЛУЖЕБНАЯ ЗАПИСКА", title_style))
     story.append(Spacer(1, 8))
-    story.extend(_build_pdf_content_flowables(ticket.content, content_style, quote_style))
+    story.extend(
+        _build_pdf_content_flowables(
+            ticket.content,
+            content_style,
+            quote_style,
+            regular_font_name,
+            bold_font_name,
+            italic_font_name,
+            bold_italic_font_name,
+        )
+    )
     story.append(Spacer(1, 28))
     footer_table = Table(
         [[Paragraph(context["ticket_date"], regular_style), Paragraph("________________", right_style)]],

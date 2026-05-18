@@ -841,6 +841,22 @@ class TicketDocumentExportTests(TestCase):
         self.assertIn("<w:b/>", xml)
         self.assertIn("<w:i/>", xml)
 
+    def test_ticket_document_download_preserves_inline_bold_and_italic_runs(self):
+        self.ticket.content = "<p>Start <strong>bold</strong> middle <em>italic</em> end</p>"
+        self.ticket.save(update_fields=["content"])
+
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        xml = self._read_document_xml(response)
+        self.assertIn("Start", xml)
+        self.assertIn("bold", xml)
+        self.assertIn("italic", xml)
+        self.assertRegex(xml, r"<w:b/>.*?bold</w:t>")
+        self.assertRegex(xml, r"<w:i/>.*?italic</w:t>")
+
     def test_ticket_document_download_preserves_paragraph_break_after_plain_text(self):
         self.ticket.content = (
             "&nbsp; &nbsp; Прошу выдать <i>принтер </i>так то так-то."
@@ -1098,6 +1114,68 @@ class NotificationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Notification.objects.filter(user=executor).exists())
+
+    def test_added_co_executor_receives_specific_notification_instead_of_generic_update(self):
+        executor_group = Group.objects.get(name=executor_group_name)
+        creator = User.objects.create_user(
+            username="creator-co-notify",
+            password="secret123",
+            email="creator-co@example.com",
+        )
+        _create_profile(creator, "Создатель уведомления")
+
+        main_executor = User.objects.create_user(
+            username="main-executor-co",
+            password="secret123",
+            email="main-executor@example.com",
+        )
+        _create_profile(main_executor, "Основной исполнитель")
+        main_executor.groups.add(executor_group)
+
+        co_executor = User.objects.create_user(
+            username="co-executor-notify",
+            password="secret123",
+            email="co-executor@example.com",
+        )
+        _create_profile(co_executor, "Соисполнитель")
+        co_executor.groups.add(executor_group)
+
+        ticket = Ticket.objects.create(
+            title="Согласование оборудования",
+            content="Нужно подключить второго исполнителя",
+            created_by=creator,
+            technician=main_executor,
+        )
+
+        self.client.force_login(main_executor)
+        response = self.client.post(
+            reverse("send_message", kwargs={"ticket_id": ticket.pk}),
+            {
+                "save-ticket": "true",
+                "technician": main_executor.pk,
+                "progress": ticket.progress,
+                "additional_executors": [str(co_executor.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 2)
+
+        co_executor_messages = [
+            message for message in mail.outbox if "co-executor@example.com" in message.to
+        ]
+        self.assertEqual(len(co_executor_messages), 1)
+        self.assertIn(
+            "Вас назначили соисполнителем заявки №",
+            _decode_header_value(co_executor_messages[0].subject),
+        )
+
+        co_executor_notifications = Notification.objects.filter(user=co_executor)
+        self.assertEqual(co_executor_notifications.count(), 1)
+        self.assertIn(
+            "Вас назначили соисполнителем заявки №",
+            co_executor_notifications.first().title,
+        )
 
     def test_ticket_assignment_email_contains_ticket_context(self):
         executor_group = Group.objects.get(name=executor_group_name)

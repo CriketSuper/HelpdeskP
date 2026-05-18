@@ -118,14 +118,21 @@ def _get_notification_recipients(*users):
     return recipients
 
 
-def _unique_users(*users, exclude_user=None):
+def _unique_users(*users, exclude_user=None, exclude_users=None):
     result = []
     seen = set()
+    excluded_ids = set()
+
+    if exclude_user is not None:
+        excluded_ids.add(exclude_user.pk)
+    for user in exclude_users or []:
+        if user is not None:
+            excluded_ids.add(user.pk)
 
     for user in users:
         if user is None:
             continue
-        if exclude_user is not None and user.pk == exclude_user.pk:
+        if user.pk in excluded_ids:
             continue
         if user.pk in seen:
             continue
@@ -262,10 +269,11 @@ def _notify_ticket_users(
     *users,
     ticket=None,
     exclude_user=None,
+    exclude_users=None,
     level=Notification.Levels.INFO,
     email_body=None,
 ):
-    recipients = _unique_users(*users, exclude_user=exclude_user)
+    recipients = _unique_users(*users, exclude_user=exclude_user, exclude_users=exclude_users)
     _create_in_app_notifications(
         title,
         body,
@@ -1051,6 +1059,7 @@ def send_message(request, ticket_id):
         previous_additional_executors = list(current_ticket.additional_executors.all())
         previous_additional_executor_ids = {user.pk for user in previous_additional_executors}
         pending_additional_executors = previous_additional_executors
+        specific_notification_users = []
 
         technician_id = request.POST.get("technician")
         if technician_id:
@@ -1096,6 +1105,7 @@ def send_message(request, ticket_id):
                         ],
                     ),
                 )
+                specific_notification_users.append(technician)
 
         requested_additional_executor_ids = []
         for value in request.POST.getlist("additional_executors"):
@@ -1146,7 +1156,7 @@ def send_message(request, ticket_id):
 
             if added_executors:
                 _notify_ticket_users(
-                    "Вас подключили к заявке",
+                    f"Вас назначили соисполнителем заявки №{current_ticket.id}",
                     f'Вы назначены соисполнителем по заявке №{current_ticket.id} с темой "{current_ticket.title}".',
                     *added_executors,
                     ticket=current_ticket,
@@ -1159,6 +1169,7 @@ def send_message(request, ticket_id):
                         details=change_parts,
                     ),
                 )
+                specific_notification_users.extend(added_executors)
 
         new_progress = request.POST.get("progress")
         if new_progress in Ticket.Progres.values and current_ticket.progress != new_progress:
@@ -1203,6 +1214,7 @@ def send_message(request, ticket_id):
                 *current_ticket.participants.all(),
                 ticket=current_ticket,
                 exclude_user=request.user,
+                exclude_users=specific_notification_users,
                 level=Notification.Levels.INFO,
                 email_body=_build_ticket_email_body(
                     current_ticket,
