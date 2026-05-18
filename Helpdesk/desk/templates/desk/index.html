@@ -311,6 +311,16 @@
     text-overflow: ellipsis;
   }
 
+  .index-ticket-table tr[data-attention="table-warning"] {
+    --bs-table-bg: #fff3cd;
+    --bs-table-hover-bg: #ffe8a3;
+  }
+
+  .index-ticket-table tr[data-attention="table-danger"] {
+    --bs-table-bg: #f8d7da;
+    --bs-table-hover-bg: #f1b8be;
+  }
+
   .index-table-resize-handle {
     position: absolute;
     top: 0;
@@ -382,7 +392,10 @@
         <tbody>
         {% for t in tickets %}
         <tr align='left' {% if t.status == "закрыта" %}class="table-success"{% endif %}>
-            <td><a href="{{ t.get_absolute_url }}">{{ t.id }}</a></td>
+            <td>
+              <span class="ticket-attention-marker d-none" data-attention="{{ t.attention_row_class|default:'' }}" data-attention-hint="{{ t.attention_hint|default:'' }}"></span>
+              <a href="{{ t.get_absolute_url }}">{{ t.id }}</a>
+            </td>
             <td><a href="{{ t.get_absolute_url }}">{{ t.title }}</a></td>
             <td>{% if t.created_by.profile %}{{ t.created_by.profile }}{% else %}{{ t.created_by }}{% endif %}</td>
             <td>{{ t.criticalness }}</td>
@@ -428,6 +441,22 @@
 
 <script>
   (function() {
+    document.querySelectorAll(".ticket-attention-marker").forEach((marker) => {
+      const row = marker.closest("tr");
+      if (!row) {
+        return;
+      }
+
+      const attentionClass = marker.dataset.attention || "";
+      const attentionHint = marker.dataset.attentionHint || "";
+      if (attentionClass) {
+        row.classList.add(attentionClass);
+      }
+      if (attentionHint) {
+        row.title = attentionHint;
+      }
+    });
+
     const table = document.getElementById("index-ticket-table");
     if (!table) {
       return;

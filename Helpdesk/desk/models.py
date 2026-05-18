@@ -149,6 +149,16 @@ class Ticket(models.Model):
         editable=False,
         verbose_name="Токен создания",
     )
+    attention_warning_notified_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Время отправки предупреждения",
+    )
+    attention_danger_notified_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Время отправки критического предупреждения",
+    )
     chat = models.JSONField(default=list, blank=True, verbose_name="Чат")
     documents = models.ManyToManyField(
         "Document",

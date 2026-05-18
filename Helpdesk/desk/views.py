@@ -2,6 +2,7 @@ import logging
 import mimetypes
 import os
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -415,6 +416,119 @@ def _can_manage_ticket_documents(user, ticket):
     return _is_admin(user) or ticket.created_by == user or ticket.technician == user
 
 
+def _reset_ticket_attention_notifications(ticket):
+    ticket.attention_warning_notified_at = None
+    ticket.attention_danger_notified_at = None
+
+
+def _get_ticket_attention_state(ticket, now=None):
+    now = now or timezone.now()
+    warning_window_hours = max(
+        1,
+        int(getattr(settings, "TICKET_ATTENTION_WARNING_HOURS", 24)),
+    )
+    warning_deadline = now + timedelta(hours=warning_window_hours)
+
+    if ticket.status == Ticket.Status.CLOSED:
+        return {
+            "level": "success",
+            "row_class": "table-success",
+            "summary": "Закрытая заявка",
+            "details": [],
+        }
+
+    level = None
+    details = []
+
+    if ticket.deadline:
+        if ticket.deadline <= now:
+            level = "danger"
+            details.append("Срок выполнения просрочен")
+        elif ticket.deadline <= warning_deadline:
+            level = "warning"
+            details.append("Срок выполнения скоро истекает")
+
+    if ticket.criticalness == Ticket.Kinds.CRITICAL:
+        level = "danger"
+        details.append("Критичность: критичная")
+    elif ticket.criticalness == Ticket.Kinds.HIGH and level != "danger":
+        level = "warning"
+        details.append("Критичность: высокая")
+
+    if level == "danger":
+        summary = "Заявка требует срочного внимания"
+        row_class = "table-danger"
+    elif level == "warning":
+        summary = "Заявка требует внимания"
+        row_class = "table-warning"
+    else:
+        summary = ""
+        row_class = ""
+
+    return {
+        "level": level or "default",
+        "row_class": row_class,
+        "summary": summary,
+        "details": details,
+    }
+
+
+def _maybe_send_ticket_attention_notification(ticket, now=None):
+    attention = _get_ticket_attention_state(ticket, now=now)
+    level = attention["level"]
+
+    if level not in {"warning", "danger"}:
+        return False
+
+    notified_at_field = (
+        "attention_danger_notified_at"
+        if level == "danger"
+        else "attention_warning_notified_at"
+    )
+    if getattr(ticket, notified_at_field):
+        return False
+
+    recipients = []
+    if ticket.technician is not None:
+        recipients.append(ticket.technician)
+    recipients.extend(ticket.additional_executors.all())
+    recipients = _unique_users(*recipients)
+    if not recipients:
+        return False
+
+    title = (
+        f"Заявка №{ticket.pk} требует срочного внимания"
+        if level == "danger"
+        else f"Заявка №{ticket.pk} требует внимания"
+    )
+    body = (
+        f'По заявке №{ticket.pk} "{ticket.title}" требуется обратить внимание на '
+        f'{", ".join(attention["details"]).lower()}.'
+    )
+    email_body = _build_ticket_email_body(
+        ticket,
+        attention["summary"],
+        details=attention["details"],
+    )
+
+    _notify_ticket_users(
+        title,
+        body,
+        *recipients,
+        ticket=ticket,
+        level=(
+            "danger"
+            if level == "danger"
+            else Notification.Levels.WARNING
+        ),
+        email_body=email_body,
+    )
+
+    setattr(ticket, notified_at_field, now or timezone.now())
+    ticket.save(update_fields=[notified_at_field])
+    return True
+
+
 def _append_system_message(ticket, message, event_type=None, event_meta=None):
     chat = list(ticket.chat or [])
     entry = {
@@ -657,6 +771,7 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
                 ],
             ),
         )
+        _maybe_send_ticket_attention_notification(form.instance)
         return response
 
 
@@ -777,7 +892,17 @@ def index(request):
     if not status:
         tickets = tickets.filter(status=Ticket.Status.OPENED)
 
-    paginator = Paginator(tickets, 18)
+    ticket_list = list(
+        tickets.select_related("created_by", "technician").prefetch_related("additional_executors")
+    )
+    current_time = timezone.now()
+    for ticket in ticket_list:
+        attention = _get_ticket_attention_state(ticket, now=current_time)
+        ticket.attention_row_class = attention["row_class"]
+        ticket.attention_hint = "; ".join(attention["details"]) or attention["summary"]
+        _maybe_send_ticket_attention_notification(ticket, now=current_time)
+
+    paginator = Paginator(ticket_list, 18)
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
 
@@ -895,6 +1020,12 @@ def ticket_edit(request, ticket_id):
                     f'Срок выполнения изменён с "{previous_deadline}" на "{next_deadline}" пользователем {actor_name}'
                 )
 
+            if (
+                original_criticalness != updated_ticket.criticalness
+                or original_deadline != updated_ticket.deadline
+            ):
+                _reset_ticket_attention_notifications(updated_ticket)
+
             if change_messages:
                 for message_text in change_messages:
                     _append_system_message(updated_ticket, message_text)
@@ -922,6 +1053,7 @@ def ticket_edit(request, ticket_id):
                     ),
                 )
                 messages.success(request, "Заявка обновлена.")
+                _maybe_send_ticket_attention_notification(updated_ticket)
             else:
                 messages.info(request, "Изменений не найдено.")
 
@@ -1072,6 +1204,7 @@ def send_message(request, ticket_id):
         previous_additional_executor_ids = {user.pk for user in previous_additional_executors}
         pending_additional_executors = previous_additional_executors
         specific_notification_users = []
+        attention_recipients_changed = False
 
         technician_id = request.POST.get("technician")
         if technician_id:
@@ -1080,6 +1213,7 @@ def send_message(request, ticket_id):
                 pk=technician_id,
             )
             if current_ticket.technician_id != technician.id:
+                attention_recipients_changed = True
                 previous_assignee = _get_user_display_name(previous_technician)
                 current_ticket.technician = technician
                 changes.append(
@@ -1139,6 +1273,7 @@ def send_message(request, ticket_id):
         selected_additional_executor_ids = {user.pk for user in selected_additional_executors}
 
         if selected_additional_executor_ids != previous_additional_executor_ids:
+            attention_recipients_changed = True
             added_executors = [
                 user for user in selected_additional_executors if user.pk not in previous_additional_executor_ids
             ]
@@ -1206,6 +1341,8 @@ def send_message(request, ticket_id):
             )
 
         if changes:
+            if attention_recipients_changed:
+                _reset_ticket_attention_notifications(current_ticket)
             current_ticket.save()
             current_ticket.additional_executors.set(pending_additional_executors)
             _add_ticket_participants(
@@ -1236,6 +1373,7 @@ def send_message(request, ticket_id):
                 ),
             )
             messages.success(request, "Изменения по заявке сохранены.")
+            _maybe_send_ticket_attention_notification(current_ticket)
             return redirect("ticket", ticket_id=ticket_id)
 
         return redirect("ticket", ticket_id=ticket_id)
@@ -1277,6 +1415,7 @@ def send_message(request, ticket_id):
             raise Http404("Страница не найдена")
 
         current_ticket.status = Ticket.Status.OPENED
+        _reset_ticket_attention_notifications(current_ticket)
         actor_name = _get_user_display_name(request.user)
         _append_system_message(
             current_ticket,
@@ -1285,6 +1424,7 @@ def send_message(request, ticket_id):
             event_meta={"actor": actor_name},
         )
         current_ticket.save()
+        _maybe_send_ticket_attention_notification(current_ticket)
         _notify_ticket_users(
             "Заявка открыта повторно",
             f'Заявка №{current_ticket.id} с темой "{current_ticket.title}" открыта повторно.',

@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import timedelta
 from email.header import decode_header
 from io import BytesIO
 from zipfile import ZipFile
@@ -190,7 +191,7 @@ class TicketAccessTests(TestCase):
         response = self.client.get(reverse("index"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["tickets"].count(), 3)
+        self.assertEqual(len(response.context["tickets"]), 3)
 
     def test_executor_sees_created_and_assigned_tickets(self):
         self.client.force_login(self.executor_1)
@@ -244,6 +245,36 @@ class TicketAccessTests(TestCase):
         self.assertEqual(first_page_response.context["page_obj"].paginator.per_page, 18)
         self.assertEqual(first_page_response.context["page_obj"].paginator.count, 35)
         self.assertEqual(len(second_page_response.context["tickets"]), 17)
+
+    def test_index_marks_attention_levels_for_open_and_closed_tickets(self):
+        now = timezone.now()
+        self.assigned_ticket.deadline = now - timedelta(hours=2)
+        self.assigned_ticket.save(update_fields=["deadline"])
+
+        self.created_by_executor_ticket.deadline = now + timedelta(hours=6)
+        self.created_by_executor_ticket.save(update_fields=["deadline"])
+
+        self.foreign_ticket.status = Ticket.Status.CLOSED
+        self.foreign_ticket.criticalness = Ticket.Kinds.CRITICAL
+        self.foreign_ticket.save(update_fields=["status", "criticalness"])
+
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("index"), {"status": "any"})
+
+        self.assertEqual(response.status_code, 200)
+        tickets_by_id = {ticket.pk: ticket for ticket in response.context["tickets"]}
+        self.assertEqual(
+            tickets_by_id[self.assigned_ticket.pk].attention_row_class,
+            "table-danger",
+        )
+        self.assertEqual(
+            tickets_by_id[self.created_by_executor_ticket.pk].attention_row_class,
+            "table-warning",
+        )
+        self.assertEqual(
+            tickets_by_id[self.foreign_ticket.pk].attention_row_class,
+            "table-success",
+        )
 
     def test_executor_can_reassign_and_change_progress_for_assigned_ticket(self):
         self.client.force_login(self.executor_1)
@@ -1191,6 +1222,101 @@ class NotificationTests(TestCase):
             "Вас назначили соисполнителем заявки №",
             co_executor_notifications.first().title,
         )
+
+    def test_index_sends_attention_notification_once_to_current_executors_only(self):
+        executor_group = Group.objects.get(name=executor_group_name)
+        creator = User.objects.create_user(
+            username="creator-attention",
+            password="secret123",
+            email="creator-attention@example.com",
+        )
+        _create_profile(creator, "Создатель контроля")
+
+        executor = User.objects.create_user(
+            username="executor-attention",
+            password="secret123",
+            email="executor-attention@example.com",
+        )
+        _create_profile(executor, "Исполнитель контроля")
+        executor.groups.add(executor_group)
+
+        co_executor = User.objects.create_user(
+            username="co-executor-attention",
+            password="secret123",
+            email="co-executor-attention@example.com",
+        )
+        _create_profile(co_executor, "Соисполнитель контроля")
+        co_executor.groups.add(executor_group)
+
+        closed_executor = User.objects.create_user(
+            username="closed-executor-attention",
+            password="secret123",
+            email="closed-executor@example.com",
+        )
+        _create_profile(closed_executor, "Закрытый исполнитель")
+        closed_executor.groups.add(executor_group)
+
+        urgent_ticket = Ticket.objects.create(
+            title="Срочная заявка",
+            content="Нужно срочно отреагировать",
+            created_by=creator,
+            technician=executor,
+            criticalness=Ticket.Kinds.CRITICAL,
+            deadline=timezone.now() - timedelta(hours=1),
+        )
+        urgent_ticket.additional_executors.add(co_executor)
+
+        Ticket.objects.create(
+            title="Закрытая срочная заявка",
+            content="Не должна тревожить исполнителя",
+            created_by=creator,
+            technician=closed_executor,
+            criticalness=Ticket.Kinds.CRITICAL,
+            deadline=timezone.now() - timedelta(hours=1),
+            status=Ticket.Status.CLOSED,
+        )
+
+        self.client.force_login(User.objects.get(username="admin"))
+
+        first_response = self.client.get(reverse("index"), {"status": "any"})
+        second_response = self.client.get(reverse("index"), {"status": "any"})
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(
+            Notification.objects.filter(
+                user=executor,
+                title__contains="требует срочного внимания",
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            Notification.objects.get(
+                user=executor,
+                title__contains="требует срочного внимания",
+            ).level,
+            "danger",
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                user=co_executor,
+                title__contains="требует срочного внимания",
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                user=closed_executor,
+                title__contains="требует срочного внимания",
+            ).exists()
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            set(mail.outbox[0].to),
+            {"executor-attention@example.com", "co-executor-attention@example.com"},
+        )
+        urgent_ticket.refresh_from_db()
+        self.assertIsNotNone(urgent_ticket.attention_danger_notified_at)
 
     def test_ticket_assignment_email_contains_ticket_context(self):
         executor_group = Group.objects.get(name=executor_group_name)
