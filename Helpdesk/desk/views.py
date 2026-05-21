@@ -48,7 +48,12 @@ from .models import (
     get_assignable_technicians,
     get_default_technician_user,
 )
-from .rich_text import rich_text_has_text, rich_text_to_plain_text, sanitize_rich_text
+from .rich_text import (
+    rich_text_has_text,
+    rich_text_to_audit_text,
+    rich_text_to_plain_text,
+    sanitize_rich_text,
+)
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -979,7 +984,7 @@ def ticket_edit(request, ticket_id):
     if request.method == "POST":
         original_title = current_ticket.title
         original_content = current_ticket.content
-        original_content_text = rich_text_to_plain_text(original_content)
+        original_content_text = rich_text_to_audit_text(original_content)
         original_criticalness = current_ticket.criticalness
         original_deadline = current_ticket.deadline
         form = TicketEditForm(
@@ -1001,7 +1006,7 @@ def ticket_edit(request, ticket_id):
                     f'Критичность заявки изменена с "{original_criticalness}" на "{updated_ticket.criticalness}" пользователем {actor_name}'
                 )
             if original_content != updated_ticket.content:
-                updated_content_text = rich_text_to_plain_text(updated_ticket.content)
+                updated_content_text = rich_text_to_audit_text(updated_ticket.content)
                 change_messages.append(
                     f'Содержание заявки изменено пользователем {actor_name} с "{original_content_text}" на "{updated_content_text}"'
                 )

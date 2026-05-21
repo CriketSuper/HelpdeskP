@@ -419,6 +419,32 @@ class TicketAccessTests(TestCase):
             any("Срок выполнения изменён" in entry.get("message", "") for entry in self.foreign_ticket.chat)
         )
 
+    def test_ticket_edit_compacts_table_content_in_system_message(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("ticket_edit", kwargs={"ticket_id": self.assigned_ticket.pk}),
+            {
+                "title": self.assigned_ticket.title,
+                "content": (
+                    "<p>13214</p>"
+                    "<table><tbody><tr><td>adsadsa</td></tr><tr><td>12412412</td></tr></tbody></table>"
+                ),
+                "criticalness": self.assigned_ticket.criticalness,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assigned_ticket.refresh_from_db()
+        content_change_messages = [
+            entry.get("message", "")
+            for entry in self.assigned_ticket.chat
+            if "Содержание заявки изменено пользователем" in entry.get("message", "")
+        ]
+        self.assertTrue(content_change_messages)
+        self.assertIn('на "13214 / adsadsa / 12412412"', content_change_messages[-1])
+        self.assertNotIn("\n\n", content_change_messages[-1])
+
     def test_author_edit_form_does_not_show_deadline_field(self):
         self.client.force_login(self.user)
 
@@ -783,6 +809,28 @@ class TicketCreateTests(TestCase):
         ticket = Ticket.objects.get(title="Paragraph ticket")
         self.assertIn("<p>First line</p><p>Second line</p>", ticket.content)
 
+    def test_ticket_create_preserves_table_and_alignment_markup(self):
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "Table ticket",
+                "content": (
+                    '<p style="text-align:center"><strong>Centered title</strong></p>'
+                    "<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr>"
+                    "<tr><td>Value 1</td><td><em>Value 2</em></td></tr></tbody></table>"
+                ),
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": self.executor.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Table ticket")
+        self.assertIn('align="center"', ticket.content)
+        self.assertIn("<table>", ticket.content)
+        self.assertIn("<th>Column 1</th>", ticket.content)
+        self.assertIn("<em>Value 2</em>", ticket.content)
+
     def test_ticket_create_saves_optional_deadline(self):
         response = self.client.post(
             reverse("add"),
@@ -903,6 +951,26 @@ class TicketDocumentExportTests(TestCase):
         self.assertIn("italic", xml)
         self.assertRegex(xml, r"<w:b/>.*?bold</w:t>")
         self.assertRegex(xml, r"<w:i/>.*?italic</w:t>")
+
+    def test_ticket_document_download_preserves_table_and_center_alignment(self):
+        self.ticket.content = (
+            '<p style="text-align:center"><strong>Centered title</strong></p>'
+            "<table><tbody><tr><th>Col 1</th><th>Col 2</th></tr>"
+            "<tr><td>Value 1</td><td>Value 2</td></tr></tbody></table>"
+        )
+        self.ticket.save(update_fields=["content"])
+
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        xml = self._read_document_xml(response)
+        self.assertIn("Centered title", xml)
+        self.assertIn("Col 1", xml)
+        self.assertIn("Value 2", xml)
+        self.assertGreaterEqual(xml.count("<w:tbl>"), 3)
+        self.assertIn('<w:jc w:val="center"/>', xml)
 
     def test_ticket_document_download_preserves_paragraph_break_after_plain_text(self):
         self.ticket.content = (
