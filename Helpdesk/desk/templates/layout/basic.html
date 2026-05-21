@@ -211,7 +211,7 @@
         <div id="toast-stack" class="toast-stack">
             {% if messages %}
             {% for message in messages %}
-            <div class="toast notification-toast text-bg-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="7000">
+            <div class="toast notification-toast text-bg-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-autohide="true" data-bs-delay="7000">
                 <div class="toast-header">
                     <strong class="me-auto">Система</strong>
                     <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Закрыть"></button>
@@ -262,6 +262,7 @@
                 const pendingToasts = [];
                 const activeToasts = [];
                 const maxVisibleToasts = 3;
+                const toastAutoHideDelay = 7000;
 
                 function syncToastStack() {
                     activeToasts.forEach((toastElement) => {
@@ -282,7 +283,10 @@
                         const toastElement = pendingToasts.shift();
                         toastStack.appendChild(toastElement);
                         activeToasts.push(toastElement);
-                        const instance = bootstrap.Toast.getOrCreateInstance(toastElement);
+                        const instance = bootstrap.Toast.getOrCreateInstance(toastElement, {
+                            autohide: true,
+                            delay: toastAutoHideDelay,
+                        });
                         instance.show();
                     }
 
@@ -321,7 +325,8 @@
                     toast.setAttribute("role", "alert");
                     toast.setAttribute("aria-live", "assertive");
                     toast.setAttribute("aria-atomic", "true");
-                    toast.setAttribute("data-bs-delay", "9000");
+                    toast.setAttribute("data-bs-autohide", "true");
+                    toast.setAttribute("data-bs-delay", String(toastAutoHideDelay));
 
                     const bodyMarkup = body ? `<div class="toast-body">${body}</div>` : "";
                     const linkMarkup = link ? `<div class="px-3 pb-3"><a class="btn btn-sm btn-light" href="${link}">Открыть</a></div>` : "";
