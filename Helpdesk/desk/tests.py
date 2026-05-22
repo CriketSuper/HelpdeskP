@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import timedelta
 from email.header import decode_header
 from io import BytesIO
 from zipfile import ZipFile
@@ -142,6 +143,13 @@ class VerboseNameBackendTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("index"))
+    def test_login_view_is_not_cacheable(self):
+        response = self.client.get(reverse("login"))
+
+        self.assertEqual(response.status_code, 200)
+        cache_control = response.headers.get("Cache-Control", "")
+        self.assertIn("no-cache", cache_control)
+        self.assertIn("no-store", cache_control)
 
 
 class TicketAccessTests(TestCase):
@@ -190,7 +198,7 @@ class TicketAccessTests(TestCase):
         response = self.client.get(reverse("index"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["tickets"].count(), 3)
+        self.assertEqual(len(response.context["tickets"]), 3)
 
     def test_executor_sees_created_and_assigned_tickets(self):
         self.client.force_login(self.executor_1)
@@ -223,6 +231,126 @@ class TicketAccessTests(TestCase):
         ticket_ids = {ticket.pk for ticket in response.context["tickets"]}
         self.assertEqual(ticket_ids, {self.assigned_ticket.pk})
 
+    def test_admin_can_open_statistics_page(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("statistics"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertTrue(response.context["executor_items"])
+
+    def test_executor_can_open_statistics_page_for_visible_tickets(self):
+        self.client.force_login(self.executor_1)
+
+        response = self.client.get(reverse("statistics"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 2)
+        self.assertEqual(response.context["statistics_scope_label"], "Доступные вам заявки")
+
+    def test_statistics_date_range_uses_published_for_activity_and_created_at_for_created(self):
+        now = timezone.now()
+        Ticket.objects.filter(pk=self.assigned_ticket.pk).update(
+            created_at=now - timedelta(days=60),
+            published=now - timedelta(days=2),
+        )
+        Ticket.objects.filter(pk=self.created_by_executor_ticket.pk).update(
+            created_at=now - timedelta(days=3),
+            published=now - timedelta(days=3),
+        )
+        Ticket.objects.filter(pk=self.foreign_ticket.pk).update(
+            created_at=now - timedelta(days=40),
+            published=now - timedelta(days=1),
+        )
+
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "date_from": (timezone.localdate() - timedelta(days=7)).strftime("%Y-%m-%d"),
+                "date_to": timezone.localdate().strftime("%Y-%m-%d"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertEqual(response.context["stats_created_count"], 1)
+
+    def test_statistics_can_filter_by_executor(self):
+        self.assigned_ticket.additional_executors.add(self.executor_2)
+
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "technician": str(self.executor_2.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertEqual(response.context["selected_statistics_technician"], self.executor_2)
+
+    def test_executor_cannot_filter_statistics_by_other_executor(self):
+        self.client.force_login(self.executor_1)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "technician": str(self.executor_2.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 2)
+        self.assertEqual(response.context["technician_users"], [])
+        self.assertFalse(response.context["can_filter_statistics_technician"])
+        self.assertIsNone(response.context["selected_statistics_technician"])
+
+    def test_statistics_all_period_uses_full_available_range(self):
+        now = timezone.now()
+        Ticket.objects.filter(pk=self.assigned_ticket.pk).update(
+            created_at=now - timedelta(days=120),
+            published=now - timedelta(days=90),
+        )
+        Ticket.objects.filter(pk=self.created_by_executor_ticket.pk).update(
+            created_at=now - timedelta(days=20),
+            published=now - timedelta(days=10),
+        )
+
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("statistics"), {"period": "all"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["period"], "all")
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertIn(
+            timezone.localdate(now - timedelta(days=120)).strftime("%d.%m.%Y"),
+            response.context["statistics_period_label"],
+        )
+
+    def test_statistics_manual_dates_switch_period_to_custom(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "period": "30",
+                "date_from": (timezone.localdate() - timedelta(days=11)).strftime("%Y-%m-%d"),
+                "date_to": (timezone.localdate() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["period"], "custom")
+
+    def test_regular_user_cannot_open_statistics_page(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("statistics"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("index"))
+
     def test_index_is_paginated_by_eighteen_tickets(self):
         self.client.force_login(self.admin)
 
@@ -244,6 +372,36 @@ class TicketAccessTests(TestCase):
         self.assertEqual(first_page_response.context["page_obj"].paginator.per_page, 18)
         self.assertEqual(first_page_response.context["page_obj"].paginator.count, 35)
         self.assertEqual(len(second_page_response.context["tickets"]), 17)
+
+    def test_index_marks_attention_levels_for_open_and_closed_tickets(self):
+        now = timezone.now()
+        self.assigned_ticket.deadline = now - timedelta(hours=2)
+        self.assigned_ticket.save(update_fields=["deadline"])
+
+        self.created_by_executor_ticket.deadline = now + timedelta(hours=6)
+        self.created_by_executor_ticket.save(update_fields=["deadline"])
+
+        self.foreign_ticket.status = Ticket.Status.CLOSED
+        self.foreign_ticket.criticalness = Ticket.Kinds.CRITICAL
+        self.foreign_ticket.save(update_fields=["status", "criticalness"])
+
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("index"), {"status": "any"})
+
+        self.assertEqual(response.status_code, 200)
+        tickets_by_id = {ticket.pk: ticket for ticket in response.context["tickets"]}
+        self.assertEqual(
+            tickets_by_id[self.assigned_ticket.pk].attention_row_class,
+            "table-danger",
+        )
+        self.assertEqual(
+            tickets_by_id[self.created_by_executor_ticket.pk].attention_row_class,
+            "table-warning",
+        )
+        self.assertEqual(
+            tickets_by_id[self.foreign_ticket.pk].attention_row_class,
+            "table-success",
+        )
 
     def test_executor_can_reassign_and_change_progress_for_assigned_ticket(self):
         self.client.force_login(self.executor_1)
@@ -387,6 +545,32 @@ class TicketAccessTests(TestCase):
         self.assertTrue(
             any("Срок выполнения изменён" in entry.get("message", "") for entry in self.foreign_ticket.chat)
         )
+
+    def test_ticket_edit_compacts_table_content_in_system_message(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("ticket_edit", kwargs={"ticket_id": self.assigned_ticket.pk}),
+            {
+                "title": self.assigned_ticket.title,
+                "content": (
+                    "<p>13214</p>"
+                    "<table><tbody><tr><td>adsadsa</td></tr><tr><td>12412412</td></tr></tbody></table>"
+                ),
+                "criticalness": self.assigned_ticket.criticalness,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assigned_ticket.refresh_from_db()
+        content_change_messages = [
+            entry.get("message", "")
+            for entry in self.assigned_ticket.chat
+            if "Содержание заявки изменено пользователем" in entry.get("message", "")
+        ]
+        self.assertTrue(content_change_messages)
+        self.assertIn('на "13214 / adsadsa / 12412412"', content_change_messages[-1])
+        self.assertNotIn("\n\n", content_change_messages[-1])
 
     def test_author_edit_form_does_not_show_deadline_field(self):
         self.client.force_login(self.user)
@@ -752,6 +936,28 @@ class TicketCreateTests(TestCase):
         ticket = Ticket.objects.get(title="Paragraph ticket")
         self.assertIn("<p>First line</p><p>Second line</p>", ticket.content)
 
+    def test_ticket_create_preserves_table_and_alignment_markup(self):
+        response = self.client.post(
+            reverse("add"),
+            {
+                "title": "Table ticket",
+                "content": (
+                    '<p style="text-align:center"><strong>Centered title</strong></p>'
+                    "<table><tbody><tr><th>Column 1</th><th>Column 2</th></tr>"
+                    "<tr><td>Value 1</td><td><em>Value 2</em></td></tr></tbody></table>"
+                ),
+                "criticalness": Ticket.Kinds.MEDIUM,
+                "technician": self.executor.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ticket = Ticket.objects.get(title="Table ticket")
+        self.assertIn('align="center"', ticket.content)
+        self.assertIn("<table>", ticket.content)
+        self.assertIn("<th>Column 1</th>", ticket.content)
+        self.assertIn("<em>Value 2</em>", ticket.content)
+
     def test_ticket_create_saves_optional_deadline(self):
         response = self.client.post(
             reverse("add"),
@@ -872,6 +1078,26 @@ class TicketDocumentExportTests(TestCase):
         self.assertIn("italic", xml)
         self.assertRegex(xml, r"<w:b/>.*?bold</w:t>")
         self.assertRegex(xml, r"<w:i/>.*?italic</w:t>")
+
+    def test_ticket_document_download_preserves_table_and_center_alignment(self):
+        self.ticket.content = (
+            '<p style="text-align:center"><strong>Centered title</strong></p>'
+            "<table><tbody><tr><th>Col 1</th><th>Col 2</th></tr>"
+            "<tr><td>Value 1</td><td>Value 2</td></tr></tbody></table>"
+        )
+        self.ticket.save(update_fields=["content"])
+
+        response = self.client.get(
+            reverse("ticket_document_download", kwargs={"ticket_id": self.ticket.pk})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        xml = self._read_document_xml(response)
+        self.assertIn("Centered title", xml)
+        self.assertIn("Col 1", xml)
+        self.assertIn("Value 2", xml)
+        self.assertGreaterEqual(xml.count("<w:tbl>"), 3)
+        self.assertIn('<w:jc w:val="center"/>', xml)
 
     def test_ticket_document_download_preserves_paragraph_break_after_plain_text(self):
         self.ticket.content = (
@@ -1191,6 +1417,101 @@ class NotificationTests(TestCase):
             "Вас назначили соисполнителем заявки №",
             co_executor_notifications.first().title,
         )
+
+    def test_index_sends_attention_notification_once_to_current_executors_only(self):
+        executor_group = Group.objects.get(name=executor_group_name)
+        creator = User.objects.create_user(
+            username="creator-attention",
+            password="secret123",
+            email="creator-attention@example.com",
+        )
+        _create_profile(creator, "Создатель контроля")
+
+        executor = User.objects.create_user(
+            username="executor-attention",
+            password="secret123",
+            email="executor-attention@example.com",
+        )
+        _create_profile(executor, "Исполнитель контроля")
+        executor.groups.add(executor_group)
+
+        co_executor = User.objects.create_user(
+            username="co-executor-attention",
+            password="secret123",
+            email="co-executor-attention@example.com",
+        )
+        _create_profile(co_executor, "Соисполнитель контроля")
+        co_executor.groups.add(executor_group)
+
+        closed_executor = User.objects.create_user(
+            username="closed-executor-attention",
+            password="secret123",
+            email="closed-executor@example.com",
+        )
+        _create_profile(closed_executor, "Закрытый исполнитель")
+        closed_executor.groups.add(executor_group)
+
+        urgent_ticket = Ticket.objects.create(
+            title="Срочная заявка",
+            content="Нужно срочно отреагировать",
+            created_by=creator,
+            technician=executor,
+            criticalness=Ticket.Kinds.CRITICAL,
+            deadline=timezone.now() - timedelta(hours=1),
+        )
+        urgent_ticket.additional_executors.add(co_executor)
+
+        Ticket.objects.create(
+            title="Закрытая срочная заявка",
+            content="Не должна тревожить исполнителя",
+            created_by=creator,
+            technician=closed_executor,
+            criticalness=Ticket.Kinds.CRITICAL,
+            deadline=timezone.now() - timedelta(hours=1),
+            status=Ticket.Status.CLOSED,
+        )
+
+        self.client.force_login(User.objects.get(username="admin"))
+
+        first_response = self.client.get(reverse("index"), {"status": "any"})
+        second_response = self.client.get(reverse("index"), {"status": "any"})
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(
+            Notification.objects.filter(
+                user=executor,
+                title__contains="требует срочного внимания",
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            Notification.objects.get(
+                user=executor,
+                title__contains="требует срочного внимания",
+            ).level,
+            "danger",
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                user=co_executor,
+                title__contains="требует срочного внимания",
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                user=closed_executor,
+                title__contains="требует срочного внимания",
+            ).exists()
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            set(mail.outbox[0].to),
+            {"executor-attention@example.com", "co-executor-attention@example.com"},
+        )
+        urgent_ticket.refresh_from_db()
+        self.assertIsNotNone(urgent_ticket.attention_danger_notified_at)
 
     def test_ticket_assignment_email_contains_ticket_context(self):
         executor_group = Group.objects.get(name=executor_group_name)
