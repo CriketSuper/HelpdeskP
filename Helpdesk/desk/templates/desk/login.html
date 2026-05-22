@@ -105,6 +105,14 @@
         </div>
 
         <script>
+            window.addEventListener("pageshow", (event) => {
+                const navigation = performance.getEntriesByType("navigation")[0];
+                const isBackForwardNavigation = navigation && navigation.type === "back_forward";
+                if (event.persisted || isBackForwardNavigation) {
+                    window.location.reload();
+                }
+            });
+
             const usersData = [
                 {% for profile in form.user_profiles %}
                 {

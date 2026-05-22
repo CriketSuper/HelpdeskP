@@ -789,6 +789,7 @@ class MyLogoutView(LogoutView):
     next_page = reverse_lazy("login")
 
 
+@never_cache
 def Login_View(request):
     error_message = None
     if request.method == "POST":

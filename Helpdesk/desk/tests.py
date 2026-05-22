@@ -143,6 +143,13 @@ class VerboseNameBackendTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("index"))
+    def test_login_view_is_not_cacheable(self):
+        response = self.client.get(reverse("login"))
+
+        self.assertEqual(response.status_code, 200)
+        cache_control = response.headers.get("Cache-Control", "")
+        self.assertIn("no-cache", cache_control)
+        self.assertIn("no-store", cache_control)
 
 
 class TicketAccessTests(TestCase):
