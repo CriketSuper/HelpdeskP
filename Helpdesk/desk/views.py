@@ -2,6 +2,7 @@ import logging
 import mimetypes
 import os
 import uuid
+from collections import Counter
 from datetime import timedelta
 
 from django.conf import settings
@@ -14,7 +15,7 @@ from django.contrib.auth.views import LogoutView
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Max, Min, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -419,6 +420,10 @@ def _can_edit_ticket_details(user, ticket):
 
 def _can_manage_ticket_documents(user, ticket):
     return _is_admin(user) or ticket.created_by == user or ticket.technician == user
+
+
+def _can_view_statistics(user):
+    return _is_admin(user) or _is_workflow_executor(user)
 
 
 def _reset_ticket_attention_notifications(ticket):
@@ -947,6 +952,364 @@ def index(request):
             "max_upload_size_mb": getattr(settings, "MAX_UPLOAD_SIZE_MB", 200),
         },
     )
+
+
+def _get_statistics_queryset(user):
+    if _is_admin(user):
+        return Ticket.objects.all()
+    return Ticket.objects.filter(
+        Q(created_by=user)
+        | Q(technician=user)
+        | Q(additional_executors=user)
+        | Q(participants=user)
+    ).distinct()
+
+
+def _build_choice_stats(queryset, field_name, choices, color_map):
+    counter = Counter(queryset.values_list(field_name, flat=True))
+    total = sum(counter.values()) or 1
+    max_count = max(counter.values(), default=0)
+    items = []
+    for value, label in choices:
+        count = counter.get(value, 0)
+        items.append(
+            {
+                "value": value,
+                "label": label,
+                "count": count,
+                "percent": round(count * 100 / total, 1) if count else 0,
+                "fill_percent": max(10, round(count * 100 / max_count)) if max_count and count else 8,
+                "color": color_map.get(value, "#6c757d"),
+            }
+        )
+    return items
+
+
+def _build_created_timeline_stats(queryset, start_date, end_date):
+    days_span = max(1, (end_date - start_date).days + 1)
+    timestamps = [
+        timezone.localtime(value).date()
+        for value in queryset.values_list("created_at", flat=True)
+        if value and start_date <= timezone.localtime(value).date() <= end_date
+    ]
+
+    if days_span <= 31:
+        mode = "day"
+        buckets = [start_date + timedelta(days=offset) for offset in range(days_span)]
+        counter = Counter(timestamps)
+
+        def label_for(bucket):
+            return bucket.strftime("%d.%m")
+
+        def title_for(bucket):
+            return bucket.strftime("%d.%m.%Y")
+
+    elif days_span <= 180:
+        mode = "week"
+        week_starts = []
+        current = start_date - timedelta(days=start_date.weekday())
+        while current <= end_date:
+            week_starts.append(current)
+            current += timedelta(days=7)
+        buckets = week_starts
+        counter = Counter()
+        for value in timestamps:
+            bucket = value - timedelta(days=value.weekday())
+            counter[bucket] += 1
+
+        def label_for(bucket):
+            return f"{bucket.strftime('%d.%m')}"
+
+        def title_for(bucket):
+            week_end = min(bucket + timedelta(days=6), end_date)
+            return f"{bucket.strftime('%d.%m.%Y')} - {week_end.strftime('%d.%m.%Y')}"
+
+    else:
+        mode = "month"
+        buckets = []
+        current = start_date.replace(day=1)
+        while current <= end_date:
+            buckets.append(current)
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1, day=1)
+            else:
+                current = current.replace(month=current.month + 1, day=1)
+        counter = Counter()
+        for value in timestamps:
+            counter[value.replace(day=1)] += 1
+
+        def label_for(bucket):
+            return bucket.strftime("%m.%Y")
+
+        def title_for(bucket):
+            return bucket.strftime("%m.%Y")
+
+    max_count = max(counter.values(), default=0)
+    items = []
+    for bucket in buckets:
+        count = counter.get(bucket, 0)
+        items.append(
+            {
+                "bucket": bucket,
+                "label": label_for(bucket),
+                "title": title_for(bucket),
+                "count": count,
+                "height_percent": max(10, round(count * 100 / max_count)) if max_count and count else 8,
+            }
+        )
+    return items, mode
+
+
+def _build_status_donut(status_items):
+    total = sum(item["count"] for item in status_items)
+    if not total:
+        return "conic-gradient(#e9ecef 0deg 360deg)"
+
+    current = 0
+    slices = []
+    for item in status_items:
+        if not item["count"]:
+            continue
+        angle = item["count"] * 360 / total
+        slices.append(f"{item['color']} {current:.2f}deg {current + angle:.2f}deg")
+        current += angle
+    if current < 360:
+        slices.append(f"#e9ecef {current:.2f}deg 360deg")
+    return f"conic-gradient({', '.join(slices)})"
+
+
+def _build_executor_statistics(queryset):
+    technicians = list(get_assignable_technicians().select_related("profile"))
+    items = []
+    for technician in technicians:
+        main_queryset = queryset.filter(technician=technician)
+        co_queryset = queryset.filter(additional_executors=technician).exclude(technician=technician)
+        visible_total = main_queryset.count() + co_queryset.count()
+        if not visible_total:
+            continue
+        open_count = main_queryset.filter(status=Ticket.Status.OPENED).count() + co_queryset.filter(
+            status=Ticket.Status.OPENED
+        ).count()
+        closed_count = main_queryset.filter(status=Ticket.Status.CLOSED).count() + co_queryset.filter(
+            status=Ticket.Status.CLOSED
+        ).count()
+        overdue_count = (
+            main_queryset.filter(status=Ticket.Status.OPENED, deadline__lt=timezone.now()).count()
+            + co_queryset.filter(status=Ticket.Status.OPENED, deadline__lt=timezone.now()).count()
+        )
+        items.append(
+            {
+                "name": _get_user_display_name(technician),
+                "main_count": main_queryset.count(),
+                "co_count": co_queryset.count(),
+                "total_count": visible_total,
+                "open_count": open_count,
+                "closed_count": closed_count,
+                "overdue_count": overdue_count,
+            }
+        )
+    return sorted(items, key=lambda item: (-item["total_count"], item["name"]))
+
+
+def _parse_statistics_dates(request):
+    date_format = "%Y-%m-%d"
+    today = timezone.localdate()
+    period = request.GET.get("period", "30")
+    date_from_raw = (request.GET.get("date_from") or "").strip()
+    date_to_raw = (request.GET.get("date_to") or "").strip()
+
+    date_from = None
+    date_to = None
+    if date_from_raw:
+        try:
+            date_from = timezone.datetime.strptime(date_from_raw, date_format).date()
+        except ValueError:
+            date_from = None
+    if date_to_raw:
+        try:
+            date_to = timezone.datetime.strptime(date_to_raw, date_format).date()
+        except ValueError:
+            date_to = None
+
+    if period != "all" and (date_from is None or date_to is None):
+        try:
+            period_days = int(period)
+        except ValueError:
+            period = "30"
+            period_days = 30
+        date_to = date_to or today
+        date_from = date_from or (date_to - timedelta(days=period_days - 1))
+    elif period == "all":
+        if date_from is not None and date_to is None:
+            date_to = today
+        elif date_to is not None and date_from is None:
+            date_from = date_to
+
+    if date_from is not None and date_to is not None and date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    return period, date_from, date_to
+
+
+@never_cache
+@login_required
+def statistics_report(request):
+    if not _can_view_statistics(request.user):
+        messages.error(request, "Статистика доступна только администраторам и исполнителям.")
+        return redirect("index")
+
+    base_queryset = _get_statistics_queryset(request.user)
+    can_filter_statistics_technician = _is_admin(request.user)
+    technician_users = (
+        list(get_assignable_technicians().select_related("profile"))
+        if can_filter_statistics_technician
+        else []
+    )
+    technician_filter = (
+        (request.GET.get("technician") or "").strip()
+        if can_filter_statistics_technician
+        else ""
+    )
+    period = request.GET.get("period", "30")
+    period_options = [
+        {"value": "7", "label": "7 дней"},
+        {"value": "30", "label": "30 дней"},
+        {"value": "90", "label": "90 дней"},
+        {"value": "all", "label": "За всё время"},
+    ]
+    period, date_from, date_to = _parse_statistics_dates(request)
+
+    filtered_queryset = base_queryset
+    selected_technician = None
+    if technician_filter:
+        selected_technician = next(
+            (user for user in technician_users if str(user.pk) == technician_filter),
+            None,
+        )
+        if selected_technician is not None:
+            filtered_queryset = filtered_queryset.filter(
+                Q(technician=selected_technician) | Q(additional_executors=selected_technician)
+            ).distinct()
+
+    if date_from is None or date_to is None:
+        bounds = filtered_queryset.aggregate(
+            min_created=Min("created_at"),
+            min_published=Min("published"),
+            max_created=Max("created_at"),
+            max_published=Max("published"),
+        )
+        start_candidates = [
+            timezone.localdate(value)
+            for value in (bounds["min_created"], bounds["min_published"])
+            if value is not None
+        ]
+        end_candidates = [
+            timezone.localdate(value)
+            for value in (bounds["max_created"], bounds["max_published"])
+            if value is not None
+        ]
+        fallback_start = min(start_candidates, default=timezone.localdate())
+        fallback_end = max(end_candidates, default=timezone.localdate())
+        date_from = date_from or fallback_start
+        date_to = date_to or fallback_end
+
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    activity_queryset = filtered_queryset.filter(
+        published__date__gte=date_from,
+        published__date__lte=date_to,
+    ).distinct()
+    created_queryset = filtered_queryset.filter(
+        created_at__date__gte=date_from,
+        created_at__date__lte=date_to,
+    ).distinct()
+    now = timezone.now()
+    total_count = activity_queryset.count()
+    created_count = created_queryset.count()
+    open_count = activity_queryset.filter(status=Ticket.Status.OPENED).count()
+    closed_count = activity_queryset.filter(status=Ticket.Status.CLOSED).count()
+    overdue_count = activity_queryset.filter(status=Ticket.Status.OPENED, deadline__lt=now).count()
+    critical_count = activity_queryset.filter(criticalness=Ticket.Kinds.CRITICAL).count()
+    high_priority_count = activity_queryset.filter(
+        Q(criticalness=Ticket.Kinds.HIGH) | Q(criticalness=Ticket.Kinds.CRITICAL)
+    ).count()
+
+    status_items = _build_choice_stats(
+        activity_queryset,
+        "status",
+        Ticket.Status.choices,
+        {
+            Ticket.Status.OPENED: "#0d6efd",
+            Ticket.Status.CLOSED: "#198754",
+        },
+    )
+    progress_items = _build_choice_stats(
+        activity_queryset,
+        "progress",
+        Ticket.Progres.choices,
+        {
+            Ticket.Progres.ACCEPTED: "#0d6efd",
+            Ticket.Progres.AGREED: "#6f42c1",
+            Ticket.Progres.TODO: "#fd7e14",
+            Ticket.Progres.INPROGRESS: "#ffc107",
+            Ticket.Progres.DECIDED: "#198754",
+            Ticket.Progres.IMPOSSIBLE: "#dc3545",
+        },
+    )
+    criticality_items = _build_choice_stats(
+        activity_queryset,
+        "criticalness",
+        Ticket.Kinds.choices,
+        {
+            Ticket.Kinds.LOW: "#20c997",
+            Ticket.Kinds.MEDIUM: "#0dcaf0",
+            Ticket.Kinds.HIGH: "#ffc107",
+            Ticket.Kinds.CRITICAL: "#dc3545",
+        },
+    )
+
+    daily_items, timeline_mode = _build_created_timeline_stats(created_queryset, date_from, date_to)
+    executor_items = _build_executor_statistics(activity_queryset) if _is_admin(request.user) else []
+    manual_dates_requested = any(
+        (request.GET.get(field_name) or "").strip()
+        for field_name in ("date_from", "date_to")
+    )
+    display_period = period
+    if manual_dates_requested:
+        matched_period = None
+        if date_to == timezone.localdate():
+            range_days = (date_to - date_from).days + 1
+            if range_days in {7, 30, 90}:
+                matched_period = str(range_days)
+        display_period = matched_period or "custom"
+
+    context = {
+        "period": display_period,
+        "period_options": period_options,
+        "stats_total_count": total_count,
+        "stats_created_count": created_count,
+        "stats_open_count": open_count,
+        "stats_closed_count": closed_count,
+        "stats_overdue_count": overdue_count,
+        "stats_critical_count": critical_count,
+        "stats_high_priority_count": high_priority_count,
+        "status_items": status_items,
+        "progress_items": progress_items,
+        "criticality_items": criticality_items,
+        "status_donut_style": _build_status_donut(status_items),
+        "daily_items": daily_items,
+        "timeline_mode": timeline_mode,
+        "executor_items": executor_items,
+        "statistics_scope_label": "Все заявки" if _is_admin(request.user) else "Доступные вам заявки",
+        "statistics_period_label": f"{date_from.strftime('%d.%m.%Y')} - {date_to.strftime('%d.%m.%Y')}",
+        "date_from": date_from.strftime("%Y-%m-%d"),
+        "date_to": date_to.strftime("%Y-%m-%d"),
+        "technician_users": technician_users,
+        "can_filter_statistics_technician": can_filter_statistics_technician,
+        "selected_statistics_technician": selected_technician,
+    }
+    return render(request, "desk/statistics.html", context)
 
 
 @login_required

@@ -1,0 +1,800 @@
+{% extends "layout/basic.html" %}
+
+{% block title %}Статистика{% endblock %}
+
+{% block content %}
+<style>
+    .stats-shell {
+        max-width: 82rem;
+        margin: 0 auto;
+        padding: 1rem 1rem 2rem;
+    }
+
+    .stats-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1.5rem;
+    }
+
+    .stats-subtitle {
+        color: #6c757d;
+        margin: 0.35rem 0 0;
+    }
+
+    .stats-filter-card,
+    .stats-card,
+    .stats-chart-card,
+    .stats-table-card {
+        border: 1px solid #dee2e6;
+        border-radius: 1.1rem;
+        background: #fff;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+    }
+
+    .stats-filter-card {
+        padding: 1rem 1.1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .stats-filter-form {
+        display: flex;
+        gap: 0.85rem;
+        align-items: end;
+        flex-wrap: wrap;
+    }
+
+    .stats-filter-field {
+        min-width: 14rem;
+    }
+
+    .stats-filter-field--wide {
+        flex: 1 1 20rem;
+    }
+
+    .stats-filter-actions {
+        margin-left: auto;
+    }
+
+    .executor-search-wrap {
+        position: relative;
+    }
+
+    .executor-search-results {
+        position: absolute;
+        top: calc(100% + 0.25rem);
+        left: 0;
+        right: 0;
+        z-index: 20;
+        display: none;
+        max-height: 260px;
+        overflow-y: auto;
+        padding: 0.35rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.75rem;
+        background: #fff;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .executor-search-results.is-open {
+        display: block;
+    }
+
+    .executor-search-option {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        text-align: left;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.6rem;
+    }
+
+    .executor-search-option:hover,
+    .executor-search-option.is-active,
+    .executor-search-option:focus {
+        background: #f1f3f5;
+        outline: none;
+    }
+
+    .executor-search-name {
+        font-weight: 600;
+        color: #212529;
+    }
+
+    .executor-search-meta {
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .stats-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+        gap: 0.9rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .stats-card {
+        padding: 1rem 1.1rem;
+        display: flex;
+        flex-direction: column;
+        min-height: 10.25rem;
+    }
+
+    .stats-card-label {
+        color: #6c757d;
+        font-size: 0.92rem;
+        margin-bottom: 0.75rem;
+        min-height: 2.8rem;
+    }
+
+    .stats-card-value {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1;
+        color: #212529;
+        margin-top: auto;
+    }
+
+    .stats-card-note {
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+        min-height: 2.55rem;
+    }
+
+    .stats-card--danger .stats-card-value {
+        color: #dc3545;
+    }
+
+    .stats-card--warning .stats-card-value {
+        color: #fd7e14;
+    }
+
+    .stats-card--success .stats-card-value {
+        color: #198754;
+    }
+
+    .stats-chart-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .stats-chart-card {
+        padding: 1.15rem;
+    }
+
+    .stats-chart-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin-bottom: 0.9rem;
+        color: #212529;
+    }
+
+    .stats-donut-layout {
+        display: grid;
+        grid-template-columns: 14rem 1fr;
+        gap: 1.25rem;
+        align-items: center;
+    }
+
+    .stats-donut {
+        width: 14rem;
+        height: 14rem;
+        border-radius: 50%;
+        background: {{ status_donut_style }};
+        position: relative;
+        margin: 0 auto;
+    }
+
+    .stats-donut::after {
+        content: "";
+        position: absolute;
+        inset: 1.75rem;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+    }
+
+    .stats-donut-center {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .stats-donut-center strong {
+        font-size: 2rem;
+        line-height: 1;
+        color: #212529;
+    }
+
+    .stats-donut-center span {
+        margin-top: 0.35rem;
+        color: #6c757d;
+        font-size: 0.92rem;
+    }
+
+    .stats-legend {
+        display: grid;
+        gap: 0.7rem;
+    }
+
+    .stats-legend-item {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 0.65rem;
+        align-items: center;
+        font-size: 0.95rem;
+    }
+
+    .stats-legend-dot {
+        width: 0.85rem;
+        height: 0.85rem;
+        border-radius: 50%;
+    }
+
+    .stats-bars {
+        display: grid;
+        gap: 0.8rem;
+    }
+
+    .stats-bar-label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .stats-bar-track {
+        height: 0.8rem;
+        border-radius: 999px;
+        background: #edf2f7;
+        overflow: hidden;
+    }
+
+    .stats-bar-fill {
+        height: 100%;
+        border-radius: inherit;
+    }
+
+    .stats-trend-grid {
+        display: grid;
+        grid-template-columns: repeat(14, minmax(0, 1fr));
+        gap: 0.45rem;
+        align-items: end;
+        min-height: 14rem;
+    }
+
+    .stats-trend-column {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.45rem;
+        height: 100%;
+    }
+
+    .stats-trend-bar-wrap {
+        width: 100%;
+        flex: 1 1 auto;
+        min-height: 8rem;
+        display: flex;
+        align-items: flex-end;
+    }
+
+    .stats-trend-bar {
+        width: 100%;
+        min-height: 0.65rem;
+        border-radius: 0.7rem 0.7rem 0.35rem 0.35rem;
+        background: linear-gradient(180deg, #60a5fa 0%, #2563eb 100%);
+    }
+
+    .stats-trend-count {
+        font-size: 0.82rem;
+        color: #495057;
+    }
+
+    .stats-trend-label {
+        font-size: 0.76rem;
+        color: #6c757d;
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        letter-spacing: 0.02em;
+    }
+
+    .stats-table-card {
+        padding: 1.15rem;
+    }
+
+    .stats-table-wrap {
+        overflow-x: auto;
+    }
+
+    .stats-empty {
+        padding: 2.2rem 1rem;
+        text-align: center;
+        color: #6c757d;
+    }
+
+    @media (max-width: 1199.98px) {
+        .stats-chart-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .stats-donut-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .stats-donut {
+            width: 11.5rem;
+            height: 11.5rem;
+        }
+
+        .stats-trend-grid {
+            min-height: 11rem;
+        }
+    }
+</style>
+
+<div class="stats-shell">
+    <div class="stats-header">
+        <div>
+            <h2 class="mb-0">Статистика заявок</h2>
+            <p class="stats-subtitle">
+                {{ statistics_scope_label }} · {{ statistics_period_label }}
+                {% if selected_statistics_technician %}
+                · Исполнитель:
+                {% if selected_statistics_technician.profile %}
+                {{ selected_statistics_technician.profile }}
+                {% else %}
+                {{ selected_statistics_technician.username }}
+                {% endif %}
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <div class="stats-filter-card">
+        <form method="get" class="stats-filter-form">
+            <div class="stats-filter-field">
+                <label class="form-label" for="period">Период</label>
+                <select class="form-select" id="period" name="period">
+                    {% for option in period_options %}
+                    <option value="{{ option.value }}" {% if option.value == period %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                    <option value="custom" {% if period == "custom" %}selected{% endif %}>Свой диапазон</option>
+                </select>
+            </div>
+            <div class="stats-filter-field">
+                <label class="form-label" for="date_from">Дата с</label>
+                <input class="form-control" type="date" id="date_from" name="date_from" value="{{ date_from }}">
+            </div>
+            <div class="stats-filter-field">
+                <label class="form-label" for="date_to">Дата по</label>
+                <input class="form-control" type="date" id="date_to" name="date_to" value="{{ date_to }}">
+            </div>
+            {% if can_filter_statistics_technician %}
+            <div class="stats-filter-field stats-filter-field--wide">
+                <label class="form-label" for="statistics-technician-search">Исполнитель</label>
+                <input type="hidden" name="technician" id="statistics-technician-id" value="{% if selected_statistics_technician %}{{ selected_statistics_technician.pk }}{% endif %}">
+                <div class="executor-search-wrap">
+                    <input
+                        type="text"
+                        id="statistics-technician-search"
+                        class="form-control"
+                        autocomplete="off"
+                        placeholder="Начните вводить исполнителя"
+                        value="{% if selected_statistics_technician %}{% if selected_statistics_technician.profile %}{{ selected_statistics_technician.profile }}{% else %}{{ selected_statistics_technician.username }}{% endif %}{% endif %}"
+                    >
+                    <div id="statistics-technician-results" class="executor-search-results"></div>
+                </div>
+            </div>
+            {% endif %}
+            <div class="stats-filter-actions">
+                <button type="submit" class="btn btn-primary">Показать</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="stats-summary-grid">
+        <div class="stats-card">
+            <div class="stats-card-label">Активность за период</div>
+            <div class="stats-card-value">{{ stats_total_count }}</div>
+            <div class="stats-card-note">По дате изменения</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-card-label">Создано за период</div>
+            <div class="stats-card-value">{{ stats_created_count }}</div>
+            <div class="stats-card-note">По дате создания</div>
+        </div>
+        <div class="stats-card">
+            <div class="stats-card-label">Открытые в период</div>
+            <div class="stats-card-value">{{ stats_open_count }}</div>
+            <div class="stats-card-note">Среди изменённых</div>
+        </div>
+        <div class="stats-card stats-card--success">
+            <div class="stats-card-label">Закрытые в период</div>
+            <div class="stats-card-value">{{ stats_closed_count }}</div>
+            <div class="stats-card-note">Среди изменённых</div>
+        </div>
+        <div class="stats-card stats-card--danger">
+            <div class="stats-card-label">Просроченные</div>
+            <div class="stats-card-value">{{ stats_overdue_count }}</div>
+            <div class="stats-card-note">Срок уже истёк</div>
+        </div>
+        <div class="stats-card stats-card--danger">
+            <div class="stats-card-label">Критичные</div>
+            <div class="stats-card-value">{{ stats_critical_count }}</div>
+            <div class="stats-card-note">Максимальный приоритет</div>
+        </div>
+        <div class="stats-card stats-card--warning">
+            <div class="stats-card-label">Высокий приоритет</div>
+            <div class="stats-card-value">{{ stats_high_priority_count }}</div>
+            <div class="stats-card-note">Высокая + критичная</div>
+        </div>
+    </div>
+
+    {% if stats_total_count or stats_created_count %}
+    <div class="stats-chart-grid">
+        <div class="stats-chart-card">
+            <div class="stats-chart-title">Открытые / закрытые в выбранный период</div>
+            <div class="stats-donut-layout">
+                <div class="stats-donut">
+                    <div class="stats-donut-center">
+                        <strong>{{ stats_total_count }}</strong>
+                        <span>изменений</span>
+                    </div>
+                </div>
+                <div class="stats-legend">
+                    {% for item in status_items %}
+                    <div class="stats-legend-item">
+                        <span class="stats-legend-dot" style="background: {{ item.color }};"></span>
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.count }}</strong>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-chart-card">
+            <div class="stats-chart-title">Критичность</div>
+            <div class="stats-bars">
+                {% for item in criticality_items %}
+                <div>
+                    <div class="stats-bar-label-row">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.count }} · {{ item.percent }}%</strong>
+                    </div>
+                    <div class="stats-bar-track">
+                        <div class="stats-bar-fill" style="width: {{ item.fill_percent }}%; background: {{ item.color }};"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="stats-chart-grid">
+        <div class="stats-chart-card">
+            <div class="stats-chart-title">Этапы заявки</div>
+            <div class="stats-bars">
+                {% for item in progress_items %}
+                <div>
+                    <div class="stats-bar-label-row">
+                        <span>{{ item.label }}</span>
+                        <strong>{{ item.count }} · {{ item.percent }}%</strong>
+                    </div>
+                    <div class="stats-bar-track">
+                        <div class="stats-bar-fill" style="width: {{ item.fill_percent }}%; background: {{ item.color }};"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="stats-chart-card">
+            <div class="stats-chart-title">
+                Создание заявок
+                {% if timeline_mode == "day" %}по дням{% elif timeline_mode == "week" %}по неделям{% else %}по месяцам{% endif %}
+            </div>
+            <div class="stats-trend-grid">
+                {% for item in daily_items %}
+                <div class="stats-trend-column" title="{{ item.title }} — {{ item.count }}">
+                    <div class="stats-trend-count">{{ item.count }}</div>
+                    <div class="stats-trend-bar-wrap">
+                        <div class="stats-trend-bar" style="height: {{ item.height_percent }}%;"></div>
+                    </div>
+                    <div class="stats-trend-label">{{ item.label }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="stats-chart-card">
+        <div class="stats-empty">За выбранный период заявок не найдено.</div>
+    </div>
+    {% endif %}
+
+    {% if executor_items %}
+    <div class="stats-table-card mt-3">
+        <div class="stats-chart-title">Нагрузка по исполнителям</div>
+        <div class="stats-table-wrap">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Исполнитель</th>
+                        <th>Всего</th>
+                        <th>Основной</th>
+                        <th>Соисполнитель</th>
+                        <th>Открытые</th>
+                        <th>Закрытые</th>
+                        <th>Просроченные</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in executor_items %}
+                    <tr>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.total_count }}</td>
+                        <td>{{ item.main_count }}</td>
+                        <td>{{ item.co_count }}</td>
+                        <td>{{ item.open_count }}</td>
+                        <td>{{ item.closed_count }}</td>
+                        <td class="{% if item.overdue_count %}text-danger fw-semibold{% endif %}">{{ item.overdue_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+<script>
+    (() => {
+        const periodField = document.getElementById("period");
+        const dateFromField = document.getElementById("date_from");
+        const dateToField = document.getElementById("date_to");
+        const technicianSearchInput = document.getElementById("statistics-technician-search");
+        const technicianIdInput = document.getElementById("statistics-technician-id");
+        const technicianResults = document.getElementById("statistics-technician-results");
+
+        if (!periodField || !dateFromField || !dateToField) {
+            return;
+        }
+
+        const presetPeriods = new Set(["7", "30", "90"]);
+        const techniciansData = [
+            {
+                id: "",
+                name: "Все исполнители",
+                username: ""
+            },
+            {% for user in technician_users %}
+            {
+                id: "{{ user.pk|escapejs }}",
+                name: "{% if user.profile %}{{ user.profile|escapejs }}{% else %}{{ user.username|escapejs }}{% endif %}",
+                username: "{{ user.username|escapejs }}"
+            },
+            {% endfor %}
+        ];
+
+        function formatDate(value) {
+            const year = value.getFullYear();
+            const month = String(value.getMonth() + 1).padStart(2, "0");
+            const day = String(value.getDate()).padStart(2, "0");
+            return `${year}-${month}-${day}`;
+        }
+
+        function parseDate(value) {
+            if (!value) {
+                return null;
+            }
+
+            const [year, month, day] = value.split("-").map(Number);
+            if (!year || !month || !day) {
+                return null;
+            }
+
+            return new Date(year, month - 1, day);
+        }
+
+        function applyPreset(periodValue) {
+            if (presetPeriods.has(periodValue)) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                const dateTo = new Date(today);
+                const dateFrom = new Date(today);
+                dateFrom.setDate(dateFrom.getDate() - (Number(periodValue) - 1));
+
+                dateFromField.value = formatDate(dateFrom);
+                dateToField.value = formatDate(dateTo);
+                return;
+            }
+
+            if (periodValue === "all") {
+                dateFromField.value = "";
+                dateToField.value = "";
+            }
+        }
+
+        function syncPeriodWithDates() {
+            const dateFrom = parseDate(dateFromField.value);
+            const dateTo = parseDate(dateToField.value);
+
+            if (!dateFrom && !dateTo) {
+                periodField.value = "all";
+                return;
+            }
+
+            if (!dateFrom || !dateTo) {
+                periodField.value = "custom";
+                return;
+            }
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const normalizedDateTo = new Date(dateTo);
+            normalizedDateTo.setHours(0, 0, 0, 0);
+
+            const rangeDays = Math.round((normalizedDateTo - dateFrom) / 86400000) + 1;
+            if (normalizedDateTo.getTime() === today.getTime() && presetPeriods.has(String(rangeDays))) {
+                periodField.value = String(rangeDays);
+                return;
+            }
+
+            periodField.value = "custom";
+        }
+
+        periodField.addEventListener("change", () => {
+            if (periodField.value === "custom") {
+                return;
+            }
+
+            applyPreset(periodField.value);
+        });
+
+        dateFromField.addEventListener("change", syncPeriodWithDates);
+        dateToField.addEventListener("change", syncPeriodWithDates);
+        syncPeriodWithDates();
+
+        if (!technicianSearchInput || !technicianIdInput || !technicianResults) {
+            return;
+        }
+
+        let activeTechnicianIndex = -1;
+
+        function getVisibleTechnicianOptions() {
+            return Array.from(technicianResults.querySelectorAll(".executor-search-option"));
+        }
+
+        function closeTechnicianResults() {
+            technicianResults.classList.remove("is-open");
+            technicianResults.innerHTML = "";
+            activeTechnicianIndex = -1;
+        }
+
+        function setTechnician(user) {
+            technicianIdInput.value = user.id;
+            technicianSearchInput.value = user.id ? user.name : "";
+            closeTechnicianResults();
+        }
+
+        function renderTechnicianResults(query) {
+            const normalizedQuery = query.trim().toLowerCase();
+            const filteredUsers = techniciansData.filter((user) => {
+                if (!normalizedQuery) {
+                    return user.id !== "";
+                }
+
+                const haystack = `${user.name} ${user.username}`.toLowerCase();
+                return haystack.includes(normalizedQuery);
+            });
+
+            if (!filteredUsers.length) {
+                closeTechnicianResults();
+                return;
+            }
+
+            technicianResults.innerHTML = "";
+            filteredUsers.forEach((user, index) => {
+                const option = document.createElement("button");
+                option.type = "button";
+                option.className = "executor-search-option";
+                option.innerHTML = `
+                    <div class="executor-search-name">${user.name}</div>
+                    <div class="executor-search-meta">${user.username || "Все исполнители"}</div>
+                `;
+                option.addEventListener("mousedown", (event) => {
+                    event.preventDefault();
+                    setTechnician(user);
+                });
+                if (index === 0) {
+                    option.classList.add("is-active");
+                    activeTechnicianIndex = 0;
+                }
+                technicianResults.appendChild(option);
+            });
+
+            technicianResults.classList.add("is-open");
+        }
+
+        function updateActiveTechnicianOption(nextIndex) {
+            const options = getVisibleTechnicianOptions();
+            if (!options.length) {
+                activeTechnicianIndex = -1;
+                return;
+            }
+
+            activeTechnicianIndex = (nextIndex + options.length) % options.length;
+            options.forEach((option, index) => {
+                option.classList.toggle("is-active", index === activeTechnicianIndex);
+            });
+        }
+
+        technicianSearchInput.addEventListener("input", () => {
+            technicianIdInput.value = "";
+            renderTechnicianResults(technicianSearchInput.value);
+        });
+
+        technicianSearchInput.addEventListener("focus", () => {
+            if (technicianSearchInput.value.trim()) {
+                renderTechnicianResults(technicianSearchInput.value);
+            }
+        });
+
+        technicianSearchInput.addEventListener("keydown", (event) => {
+            const options = getVisibleTechnicianOptions();
+            if (!options.length) {
+                if (event.key === "Escape") {
+                    closeTechnicianResults();
+                }
+                return;
+            }
+
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                updateActiveTechnicianOption(activeTechnicianIndex + 1);
+                return;
+            }
+
+            if (event.key === "ArrowUp") {
+                event.preventDefault();
+                updateActiveTechnicianOption(activeTechnicianIndex - 1);
+                return;
+            }
+
+            if (event.key === "Enter") {
+                event.preventDefault();
+                const activeOption = options[activeTechnicianIndex] || options[0];
+                if (activeOption) {
+                    activeOption.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+                }
+                return;
+            }
+
+            if (event.key === "Escape") {
+                closeTechnicianResults();
+            }
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!event.target.closest(".executor-search-wrap")) {
+                closeTechnicianResults();
+            }
+        });
+    })();
+</script>
+{% endblock %}

@@ -224,6 +224,126 @@ class TicketAccessTests(TestCase):
         ticket_ids = {ticket.pk for ticket in response.context["tickets"]}
         self.assertEqual(ticket_ids, {self.assigned_ticket.pk})
 
+    def test_admin_can_open_statistics_page(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("statistics"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertTrue(response.context["executor_items"])
+
+    def test_executor_can_open_statistics_page_for_visible_tickets(self):
+        self.client.force_login(self.executor_1)
+
+        response = self.client.get(reverse("statistics"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 2)
+        self.assertEqual(response.context["statistics_scope_label"], "Доступные вам заявки")
+
+    def test_statistics_date_range_uses_published_for_activity_and_created_at_for_created(self):
+        now = timezone.now()
+        Ticket.objects.filter(pk=self.assigned_ticket.pk).update(
+            created_at=now - timedelta(days=60),
+            published=now - timedelta(days=2),
+        )
+        Ticket.objects.filter(pk=self.created_by_executor_ticket.pk).update(
+            created_at=now - timedelta(days=3),
+            published=now - timedelta(days=3),
+        )
+        Ticket.objects.filter(pk=self.foreign_ticket.pk).update(
+            created_at=now - timedelta(days=40),
+            published=now - timedelta(days=1),
+        )
+
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "date_from": (timezone.localdate() - timedelta(days=7)).strftime("%Y-%m-%d"),
+                "date_to": timezone.localdate().strftime("%Y-%m-%d"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertEqual(response.context["stats_created_count"], 1)
+
+    def test_statistics_can_filter_by_executor(self):
+        self.assigned_ticket.additional_executors.add(self.executor_2)
+
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "technician": str(self.executor_2.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertEqual(response.context["selected_statistics_technician"], self.executor_2)
+
+    def test_executor_cannot_filter_statistics_by_other_executor(self):
+        self.client.force_login(self.executor_1)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "technician": str(self.executor_2.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["stats_total_count"], 2)
+        self.assertEqual(response.context["technician_users"], [])
+        self.assertFalse(response.context["can_filter_statistics_technician"])
+        self.assertIsNone(response.context["selected_statistics_technician"])
+
+    def test_statistics_all_period_uses_full_available_range(self):
+        now = timezone.now()
+        Ticket.objects.filter(pk=self.assigned_ticket.pk).update(
+            created_at=now - timedelta(days=120),
+            published=now - timedelta(days=90),
+        )
+        Ticket.objects.filter(pk=self.created_by_executor_ticket.pk).update(
+            created_at=now - timedelta(days=20),
+            published=now - timedelta(days=10),
+        )
+
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("statistics"), {"period": "all"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["period"], "all")
+        self.assertEqual(response.context["stats_total_count"], 3)
+        self.assertIn(
+            timezone.localdate(now - timedelta(days=120)).strftime("%d.%m.%Y"),
+            response.context["statistics_period_label"],
+        )
+
+    def test_statistics_manual_dates_switch_period_to_custom(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(
+            reverse("statistics"),
+            {
+                "period": "30",
+                "date_from": (timezone.localdate() - timedelta(days=11)).strftime("%Y-%m-%d"),
+                "date_to": (timezone.localdate() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["period"], "custom")
+
+    def test_regular_user_cannot_open_statistics_page(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("statistics"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("index"))
+
     def test_index_is_paginated_by_eighteen_tickets(self):
         self.client.force_login(self.admin)
 
