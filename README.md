@@ -19,6 +19,13 @@ Environment variables:
 - `DEFAULT_ADMIN_PASSWORD`
 - `DEFAULT_ADMIN_EMAIL`
 - `DEFAULT_ADMIN_VERBOSE_NAME`
+- `CACHE_BACKEND`
+- `CACHE_LOCATION`
+- `LOGIN_RATE_LIMIT_ENABLED`
+- `LOGIN_RATE_LIMIT_ATTEMPTS`
+- `LOGIN_RATE_LIMIT_WINDOW_SECONDS`
+- `LOGIN_RATE_LIMIT_BLOCK_SECONDS`
+- `SYSTEM_STATUS_BACKUP_ROOT`
 
 Local setup:
 
@@ -83,3 +90,21 @@ Example cron:
 0 2 * * * /srv/Helpdesk/scripts/backup.sh >> /var/log/helpdesk-backup.log 2>&1
 30 2 * * * /srv/Helpdesk/scripts/cleanup_backups.sh >> /var/log/helpdesk-backup.log 2>&1
 ```
+
+Role matrix:
+
+- `Админ`:
+  full access to all tickets, statistics, system status, and user administration through Django admin
+- `Директор`:
+  can participate in workflow, can be assigned as executor, can view statistics only for accessible tickets
+- `Исполнитель`:
+  can work with assigned and co-assigned tickets, can view statistics only for accessible tickets
+- user without groups:
+  can only view own tickets and own ticket history
+
+Operational and security features:
+
+- `GET /desk/health/` returns a health snapshot for app checks
+- `/desk/system-status/` shows database, mail, media, logs, backup status, and recent auth events for admins
+- login rate limiting uses Django cache and blocks repeated failed attempts
+- successful logins, failed logins, and logouts are stored in the `AuthEvent` journal and visible in admin/system status

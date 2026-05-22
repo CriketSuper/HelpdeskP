@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Document, Ticket, UserProfile
+from .models import AuthEvent, Document, Ticket, UserProfile
 
 User = get_user_model()
 
@@ -65,3 +65,17 @@ admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
 admin.site.register(Ticket, TicketAdmin)
 admin.site.register(Document)
+
+
+@admin.register(AuthEvent)
+class AuthEventAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "event_type", "username", "user", "ip_address")
+    list_filter = ("event_type", "created_at")
+    search_fields = ("username", "user__username", "user__profile__verbose_name", "ip_address")
+    readonly_fields = ("created_at", "event_type", "username", "user", "ip_address", "user_agent", "metadata")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

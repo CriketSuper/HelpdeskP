@@ -11,3 +11,4 @@ Helpdesk/staticfiles/
 Helpdesk/logs/
 test_media_root/
 backup.env
+db.sqlite3.copy

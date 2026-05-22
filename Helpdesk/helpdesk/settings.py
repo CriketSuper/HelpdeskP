@@ -114,7 +114,11 @@ SESSION_COOKIE_AGE = 1840
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
+        "BACKEND": env(
+            "CACHE_BACKEND",
+            default="django.core.cache.backends.locmem.LocMemCache",
+        ),
+        "LOCATION": env("CACHE_LOCATION", default="helpdesk-default-cache"),
     }
 }
 
@@ -132,6 +136,12 @@ EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER or "webmaster@localhost"
 EMAIL_NOTIFICATIONS_ENABLED = env_bool("EMAIL_NOTIFICATIONS_ENABLED", default=bool(EMAIL_HOST))
 EMAIL_SUBJECT_PREFIX = env("EMAIL_SUBJECT_PREFIX", default="[Helpdesk] ")
+
+LOGIN_RATE_LIMIT_ENABLED = env_bool("LOGIN_RATE_LIMIT_ENABLED", default=True)
+LOGIN_RATE_LIMIT_ATTEMPTS = env("LOGIN_RATE_LIMIT_ATTEMPTS", default=5, cast=int)
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = env("LOGIN_RATE_LIMIT_WINDOW_SECONDS", default=300, cast=int)
+LOGIN_RATE_LIMIT_BLOCK_SECONDS = env("LOGIN_RATE_LIMIT_BLOCK_SECONDS", default=900, cast=int)
+SYSTEM_STATUS_BACKUP_ROOT = env("SYSTEM_STATUS_BACKUP_ROOT", default="")
 
 DEFAULT_ADMIN_USERNAME = env("DEFAULT_ADMIN_USERNAME", default="admin")
 DEFAULT_ADMIN_PASSWORD = env("DEFAULT_ADMIN_PASSWORD", default="admin")

@@ -4,6 +4,7 @@ from django.db import models
 admin_group_name = "Админ"
 executor_group_name = "Исполнитель"
 director_group_name = "Директор"
+technical_staff_group_name = "Техперсонал"
 
 User = get_user_model()
 
@@ -230,3 +231,37 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.title} -> {self.user}"
+
+
+class AuthEvent(models.Model):
+    class EventTypes(models.TextChoices):
+        LOGIN_SUCCESS = "login_success", "Успешный вход"
+        LOGIN_FAILURE = "login_failure", "Неуспешный вход"
+        LOGOUT = "logout", "Выход"
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="auth_events",
+        verbose_name="Пользователь",
+        blank=True,
+        null=True,
+    )
+    username = models.CharField(max_length=255, blank=True, verbose_name="Логин/ФИО")
+    event_type = models.CharField(
+        max_length=32,
+        choices=EventTypes.choices,
+        verbose_name="Событие",
+    )
+    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name="IP-адрес")
+    user_agent = models.CharField(max_length=512, blank=True, verbose_name="User-Agent")
+    metadata = models.JSONField(default=dict, blank=True, verbose_name="Метаданные")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Создано")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Событие авторизации"
+        verbose_name_plural = "События авторизации"
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} :: {self.username or self.user_id or '-'}"
