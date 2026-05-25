@@ -64,6 +64,7 @@ from .rich_text import (
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+security_logger = logging.getLogger("security")
 
 def _current_timestamp():
     return timezone.localtime().strftime("%Y-%m-%d %H:%M:%S")
@@ -390,13 +391,31 @@ def _get_client_ip(request):
 
 
 def _create_auth_event(event_type, *, request=None, user=None, username="", metadata=None):
+    metadata = metadata or {}
+    client_ip = _get_client_ip(request) if request is not None else None
+    user_agent = (request.META.get("HTTP_USER_AGENT", "")[:512] if request is not None else "")
+
     AuthEvent.objects.create(
         user=user,
         username=(username or "").strip(),
         event_type=event_type,
-        ip_address=_get_client_ip(request) if request is not None else None,
-        user_agent=(request.META.get("HTTP_USER_AGENT", "")[:512] if request is not None else ""),
-        metadata=metadata or {},
+        ip_address=client_ip,
+        user_agent=user_agent,
+        metadata=metadata,
+    )
+
+    log_level = logging.INFO
+    if event_type == AuthEvent.EventTypes.LOGIN_FAILURE:
+        log_level = logging.WARNING
+
+    security_logger.log(
+        log_level,
+        "auth_event type=%s username=%s user_id=%s ip=%s metadata=%s",
+        event_type,
+        (username or "").strip() or _get_user_display_name(user) or "anonymous",
+        getattr(user, "pk", None),
+        client_ip or "unknown",
+        metadata,
     )
 
 

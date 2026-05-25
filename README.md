@@ -21,6 +21,9 @@ Environment variables:
 - `DEFAULT_ADMIN_VERBOSE_NAME`
 - `CACHE_BACKEND`
 - `CACHE_LOCATION`
+- `LOG_LEVEL`
+- `LOG_ROTATION`
+- `LOG_RETENTION`
 - `LOGIN_RATE_LIMIT_ENABLED`
 - `LOGIN_RATE_LIMIT_ATTEMPTS`
 - `LOGIN_RATE_LIMIT_WINDOW_SECONDS`
@@ -63,12 +66,22 @@ Relevant environment variables for Docker:
 - `SECRET_KEY`
 - `DEBUG`
 - `ALLOWED_HOSTS`
+- `LOG_LEVEL`
 
 Application startup inside the `web` container runs:
 
 - `python manage.py migrate --noinput`
 - `python manage.py collectstatic --noinput`
 - `gunicorn helpdesk.wsgi:application --bind 0.0.0.0:8000`
+
+Logging:
+
+- application and Django logs are routed through `loguru`
+- `Helpdesk/logs/helpdesk.log` stores general application and Django logs
+- `Helpdesk/logs/errors.log` stores error-level events
+- `Helpdesk/logs/security.log` stores login, logout, failed auth, and rate-limit events
+- in Docker, `./Helpdesk/logs` is bind-mounted into the `web` container as `/app/Helpdesk/logs`
+- the container entrypoint creates `/app/Helpdesk/logs` on startup before migrations and app boot
 
 Backups:
 

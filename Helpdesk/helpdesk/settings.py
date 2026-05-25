@@ -3,6 +3,7 @@ from pathlib import Path
 
 import dj_database_url
 from decouple import Config, Csv, RepositoryEnv, config as auto_config
+from helpdesk.logging_setup import configure_loguru
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR.parent / ".env"
@@ -136,6 +137,9 @@ EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER or "webmaster@localhost"
 EMAIL_NOTIFICATIONS_ENABLED = env_bool("EMAIL_NOTIFICATIONS_ENABLED", default=bool(EMAIL_HOST))
 EMAIL_SUBJECT_PREFIX = env("EMAIL_SUBJECT_PREFIX", default="[Helpdesk] ")
+LOG_LEVEL = env("LOG_LEVEL", default="INFO")
+LOG_ROTATION = env("LOG_ROTATION", default="5 MB")
+LOG_RETENTION = env("LOG_RETENTION", default=3, cast=int)
 
 LOGIN_RATE_LIMIT_ENABLED = env_bool("LOGIN_RATE_LIMIT_ENABLED", default=True)
 LOGIN_RATE_LIMIT_ATTEMPTS = env("LOGIN_RATE_LIMIT_ATTEMPTS", default=5, cast=int)
@@ -151,47 +155,43 @@ DEFAULT_ADMIN_VERBOSE_NAME = env("DEFAULT_ADMIN_VERBOSE_NAME", default="Адми
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        },
-        "simple": {
-            "format": "[%(levelname)s] %(name)s: %(message)s",
-        },
-    },
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "simple",
-        },
-        "file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": str(LOG_DIR / "helpdesk.log"),
-            "maxBytes": 5 * 1024 * 1024,
-            "backupCount": 3,
-            "formatter": "verbose",
-            "encoding": "utf-8",
+        "loguru": {
+            "class": "helpdesk.logging_setup.InterceptHandler",
         },
     },
     "root": {
-        "handlers": ["console", "file"],
-        "level": "INFO",
+        "handlers": ["loguru"],
+        "level": LOG_LEVEL,
     },
     "loggers": {
         "django": {
-            "handlers": ["console", "file"],
-            "level": "INFO",
+            "handlers": ["loguru"],
+            "level": LOG_LEVEL,
             "propagate": False,
         },
         "django.request": {
-            "handlers": ["console", "file"],
+            "handlers": ["loguru"],
             "level": "WARNING",
             "propagate": False,
         },
         "desk": {
-            "handlers": ["console", "file"],
+            "handlers": ["loguru"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "security": {
+            "handlers": ["loguru"],
             "level": "INFO",
             "propagate": False,
         },
     },
 }
+
+configure_loguru(
+    LOG_DIR,
+    debug=DEBUG,
+    level=LOG_LEVEL,
+    rotation=LOG_ROTATION,
+    retention=LOG_RETENTION,
+)

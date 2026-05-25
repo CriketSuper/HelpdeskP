@@ -32,6 +32,7 @@ services:
     volumes:
       - static_volume:/app/Helpdesk/staticfiles
       - media_volume:/app/Helpdesk/media
+      - ./Helpdesk/logs:/app/Helpdesk/logs
     healthcheck:
       test:
         [
