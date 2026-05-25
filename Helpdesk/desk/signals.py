@@ -9,6 +9,7 @@ from .models import (
     admin_group_name,
     director_group_name,
     executor_group_name,
+    technical_staff_group_name,
 )
 
 
@@ -20,6 +21,7 @@ def ensure_default_roles(sender, **kwargs):
     admin_group, _ = Group.objects.get_or_create(name=admin_group_name)
     Group.objects.get_or_create(name=director_group_name)
     Group.objects.get_or_create(name=executor_group_name)
+    Group.objects.get_or_create(name=technical_staff_group_name)
 
     user_model = get_user_model()
 

@@ -1,0 +1,205 @@
+{% extends "layout/basic.html" %}
+
+{% block title %}Состояние системы{% endblock %}
+
+{% block content %}
+<style>
+    .system-status-shell {
+        max-width: 78rem;
+        margin: 0 auto;
+        padding: 1rem 1rem 2rem;
+    }
+
+    .system-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .system-status-card,
+    .system-status-table-card,
+    .system-status-info-card {
+        border: 1px solid #dee2e6;
+        border-radius: 1.1rem;
+        background: #fff;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+    }
+
+    .system-status-card {
+        padding: 1rem 1.1rem;
+    }
+
+    .system-status-name {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #212529;
+        margin-bottom: 0.6rem;
+    }
+
+    .system-status-summary {
+        font-size: 1.35rem;
+        font-weight: 700;
+        line-height: 1.15;
+        margin-bottom: 0.65rem;
+    }
+
+    .system-status-details {
+        color: #6c757d;
+        font-size: 0.9rem;
+        white-space: pre-line;
+        word-break: break-word;
+    }
+
+    .system-status-card--ok .system-status-summary {
+        color: #198754;
+    }
+
+    .system-status-card--warning .system-status-summary {
+        color: #fd7e14;
+    }
+
+    .system-status-card--error .system-status-summary {
+        color: #dc3545;
+    }
+
+    .system-status-card--info .system-status-summary {
+        color: #0d6efd;
+    }
+
+    .system-status-table-card,
+    .system-status-info-card {
+        padding: 1.1rem;
+    }
+
+    .system-status-subtitle {
+        color: #6c757d;
+        margin-top: 0.35rem;
+        margin-bottom: 1rem;
+    }
+
+    .system-status-table-wrap {
+        overflow-x: auto;
+    }
+
+    .system-status-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+        gap: 0.85rem;
+    }
+
+    .system-status-meta-item {
+        border: 1px solid #edf2f7;
+        border-radius: 0.9rem;
+        padding: 0.9rem 1rem;
+        background: #fbfcfe;
+    }
+
+    .system-status-meta-label {
+        font-size: 0.84rem;
+        color: #6c757d;
+        margin-bottom: 0.25rem;
+    }
+
+    .system-status-meta-value {
+        font-weight: 600;
+        color: #212529;
+    }
+</style>
+
+<div class="system-status-shell">
+    <div class="mb-4">
+        <h2 class="mb-0">Состояние системы</h2>
+        <p class="system-status-subtitle">
+            Снимок сформирован {{ system_status.generated_at }} · общий статус:
+            <strong>
+                {% if system_status.overall_status == "ok" %}
+                Норма
+                {% elif system_status.overall_status == "warning" %}
+                Есть предупреждения
+                {% else %}
+                Есть ошибки
+                {% endif %}
+            </strong>
+        </p>
+    </div>
+
+    <div class="system-status-grid">
+        {% for check in system_status.checks %}
+        <div class="system-status-card system-status-card--{{ check.status }}">
+            <div class="system-status-name">{{ check.name }}</div>
+            <div class="system-status-summary">{{ check.summary }}</div>
+            <div class="system-status-details">{{ check.details }}</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="system-status-info-card mb-3">
+        <h5 class="mb-3">Параметры защиты входа</h5>
+        <div class="system-status-meta">
+            <div class="system-status-meta-item">
+                <div class="system-status-meta-label">Попыток до блокировки</div>
+                <div class="system-status-meta-value">{{ login_rate_limit_attempts }}</div>
+            </div>
+            <div class="system-status-meta-item">
+                <div class="system-status-meta-label">Окно подсчёта</div>
+                <div class="system-status-meta-value">{{ login_rate_limit_window_seconds }} сек.</div>
+            </div>
+            <div class="system-status-meta-item">
+                <div class="system-status-meta-label">Длительность блокировки</div>
+                <div class="system-status-meta-value">{{ login_rate_limit_block_seconds }} сек.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="system-status-table-card">
+        <h5 class="mb-3">Последние события авторизации</h5>
+        <div class="system-status-table-wrap">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Время</th>
+                        <th>Событие</th>
+                        <th>Пользователь</th>
+                        <th>IP</th>
+                        <th>Дополнительно</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in recent_auth_events %}
+                    <tr>
+                        <td>{{ event.created_at|date:"d.m.Y H:i:s" }}</td>
+                        <td>{{ event.get_event_type_display }}</td>
+                        <td>
+                            {% if event.user and event.user.profile %}
+                            {{ event.user.profile }}
+                            {% elif event.username %}
+                            {{ event.username }}
+                            {% elif event.user %}
+                            {{ event.user.username }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td>{{ event.ip_address|default:"-" }}</td>
+                        <td>
+                            {% if event.metadata.reason %}
+                            Причина: {{ event.metadata.reason }}
+                            {% elif event.metadata %}
+                            {{ event.metadata }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">Событий авторизации пока нет.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

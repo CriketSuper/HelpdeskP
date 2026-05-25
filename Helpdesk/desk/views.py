@@ -1,9 +1,12 @@
+import hashlib
 import logging
 import mimetypes
 import os
+import shutil
 import uuid
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib import messages
@@ -12,9 +15,10 @@ from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LogoutView
+from django.core.cache import cache
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Max, Min, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -39,6 +43,7 @@ from .forms import (
     TicketForm,
 )
 from .models import (
+    AuthEvent,
     Document,
     Notification,
     Ticket,
@@ -46,6 +51,7 @@ from .models import (
     admin_group_name,
     director_group_name,
     executor_group_name,
+    technical_staff_group_name,
     get_assignable_technicians,
     get_default_technician_user,
 )
@@ -376,6 +382,83 @@ def _get_safe_redirect_target(request):
     return reverse("profiles")
 
 
+def _get_client_ip(request):
+    forwarded_for = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return (request.META.get("REMOTE_ADDR") or "").strip()
+
+
+def _create_auth_event(event_type, *, request=None, user=None, username="", metadata=None):
+    AuthEvent.objects.create(
+        user=user,
+        username=(username or "").strip(),
+        event_type=event_type,
+        ip_address=_get_client_ip(request) if request is not None else None,
+        user_agent=(request.META.get("HTTP_USER_AGENT", "")[:512] if request is not None else ""),
+        metadata=metadata or {},
+    )
+
+
+def _build_login_rate_limit_keys(request, submitted_identity):
+    ip_address = (_get_client_ip(request) or "unknown").lower()
+    identity = (submitted_identity or "").strip().lower() or "anonymous"
+    identity_hash = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return {
+        "ip_failures": f"login-rate-limit:ip:{ip_address}:failures",
+        "ip_blocked": f"login-rate-limit:ip:{ip_address}:blocked",
+        "identity_failures": f"login-rate-limit:identity:{identity_hash}:failures",
+        "identity_blocked": f"login-rate-limit:identity:{identity_hash}:blocked",
+    }
+
+
+def _is_login_rate_limited(request, submitted_identity):
+    if not getattr(settings, "LOGIN_RATE_LIMIT_ENABLED", False):
+        return False
+
+    keys = _build_login_rate_limit_keys(request, submitted_identity)
+    return bool(cache.get(keys["ip_blocked"]) or cache.get(keys["identity_blocked"]))
+
+
+def _register_login_failure(request, submitted_identity, *, username="", reason="invalid_credentials"):
+    keys = _build_login_rate_limit_keys(request, submitted_identity)
+    max_attempts = max(1, int(getattr(settings, "LOGIN_RATE_LIMIT_ATTEMPTS", 5)))
+    window_seconds = max(60, int(getattr(settings, "LOGIN_RATE_LIMIT_WINDOW_SECONDS", 300)))
+    block_seconds = max(60, int(getattr(settings, "LOGIN_RATE_LIMIT_BLOCK_SECONDS", 900)))
+
+    blocked = False
+    for failure_key, blocked_key in (
+        (keys["ip_failures"], keys["ip_blocked"]),
+        (keys["identity_failures"], keys["identity_blocked"]),
+    ):
+        attempts = int(cache.get(failure_key, 0)) + 1
+        cache.set(failure_key, attempts, timeout=window_seconds)
+        if attempts >= max_attempts:
+            cache.set(blocked_key, True, timeout=block_seconds)
+            cache.delete(failure_key)
+            blocked = True
+
+    _create_auth_event(
+        AuthEvent.EventTypes.LOGIN_FAILURE,
+        request=request,
+        username=username or submitted_identity,
+        metadata={"reason": reason, "blocked": blocked},
+    )
+    return blocked
+
+
+def _reset_login_rate_limit(request, submitted_identity):
+    keys = _build_login_rate_limit_keys(request, submitted_identity)
+    cache.delete_many(
+        [
+            keys["ip_failures"],
+            keys["ip_blocked"],
+            keys["identity_failures"],
+            keys["identity_blocked"],
+        ]
+    )
+
+
 def _is_admin(user):
     return user.is_superuser or user.groups.filter(name=admin_group_name).exists()
 
@@ -424,6 +507,163 @@ def _can_manage_ticket_documents(user, ticket):
 
 def _can_view_statistics(user):
     return _is_admin(user) or _is_workflow_executor(user)
+
+
+def _can_view_system_status(user):
+    return user.groups.filter(name=technical_staff_group_name).exists()
+
+
+def _format_bytes(size_in_bytes):
+    value = float(size_in_bytes or 0)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} {unit}"
+        value /= 1024
+    return f"{int(size_in_bytes)} B"
+
+
+def _get_directory_metrics(path):
+    total_size = 0
+    file_count = 0
+    for root, _, files in os.walk(path):
+        for filename in files:
+            file_path = os.path.join(root, filename)
+            try:
+                total_size += os.path.getsize(file_path)
+                file_count += 1
+            except OSError:
+                continue
+    return file_count, total_size
+
+
+def _get_database_status():
+    try:
+        connection.ensure_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except OperationalError as error:
+        return {
+            "name": "База данных",
+            "status": "error",
+            "summary": "Нет подключения",
+            "details": str(error),
+        }
+
+    return {
+        "name": "База данных",
+        "status": "ok",
+        "summary": "Подключение установлено",
+        "details": connection.settings_dict.get("ENGINE", ""),
+    }
+
+
+def _get_email_status():
+    if not getattr(settings, "EMAIL_NOTIFICATIONS_ENABLED", False):
+        return {
+            "name": "Почта",
+            "status": "info",
+            "summary": "Уведомления отключены",
+            "details": "EMAIL_NOTIFICATIONS_ENABLED=false",
+        }
+
+    if not settings.EMAIL_HOST:
+        return {
+            "name": "Почта",
+            "status": "warning",
+            "summary": "SMTP не настроен",
+            "details": "EMAIL_HOST пустой",
+        }
+
+    security_mode = "SSL" if settings.EMAIL_USE_SSL else ("TLS" if settings.EMAIL_USE_TLS else "без шифрования")
+    return {
+        "name": "Почта",
+        "status": "ok",
+        "summary": f"{settings.EMAIL_HOST}:{settings.EMAIL_PORT}",
+        "details": f"Режим: {security_mode}",
+    }
+
+
+def _get_path_status(name, path):
+    current_path = Path(path)
+    if not current_path.exists():
+        return {
+            "name": name,
+            "status": "error",
+            "summary": "Каталог не найден",
+            "details": str(current_path),
+        }
+
+    file_count, total_size = _get_directory_metrics(current_path)
+    free_space = shutil.disk_usage(current_path).free
+    return {
+        "name": name,
+        "status": "ok",
+        "summary": f"{file_count} файлов · {_format_bytes(total_size)}",
+        "details": f"{current_path} · свободно {_format_bytes(free_space)}",
+    }
+
+
+def _get_backup_status():
+    backup_root_raw = getattr(settings, "SYSTEM_STATUS_BACKUP_ROOT", "").strip()
+    if not backup_root_raw:
+        return {
+            "name": "Резервные копии",
+            "status": "info",
+            "summary": "Каталог бэкапов не настроен",
+            "details": "SYSTEM_STATUS_BACKUP_ROOT не задан",
+        }
+
+    backup_root = Path(backup_root_raw)
+    if not backup_root.exists():
+        return {
+            "name": "Резервные копии",
+            "status": "warning",
+            "summary": "Каталог бэкапов не найден",
+            "details": str(backup_root),
+        }
+
+    candidates = [item for item in backup_root.iterdir() if item.is_dir()]
+    if not candidates:
+        return {
+            "name": "Резервные копии",
+            "status": "warning",
+            "summary": "Бэкапы не найдены",
+            "details": str(backup_root),
+        }
+
+    latest_backup = max(candidates, key=lambda item: item.stat().st_mtime)
+    latest_modified = timezone.localtime(
+        datetime.fromtimestamp(latest_backup.stat().st_mtime, tz=timezone.get_current_timezone())
+    ).strftime("%d.%m.%Y %H:%M")
+    return {
+        "name": "Резервные копии",
+        "status": "ok",
+        "summary": f"Последний бэкап: {latest_backup.name}",
+        "details": f"{latest_modified} · {latest_backup}",
+    }
+
+
+def _build_system_status_snapshot():
+    checks = [
+        _get_database_status(),
+        _get_email_status(),
+        _get_path_status("Media", settings.MEDIA_ROOT),
+        _get_path_status("Логи", settings.LOG_DIR if hasattr(settings, "LOG_DIR") else Path(settings.BASE_DIR) / "logs"),
+        _get_backup_status(),
+    ]
+    overall_status = "ok"
+    if any(check["status"] == "error" for check in checks):
+        overall_status = "error"
+    elif any(check["status"] == "warning" for check in checks):
+        overall_status = "warning"
+
+    return {
+        "generated_at": timezone.localtime().strftime("%d.%m.%Y %H:%M:%S"),
+        "overall_status": overall_status,
+        "checks": checks,
+    }
 
 
 def _reset_ticket_attention_notifications(ticket):
@@ -788,20 +1028,65 @@ class TicketCreateView(LoginRequiredMixin, CreateView):
 class MyLogoutView(LogoutView):
     next_page = reverse_lazy("login")
 
+    def post(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            _create_auth_event(
+                AuthEvent.EventTypes.LOGOUT,
+                request=request,
+                user=request.user,
+                username=_get_user_display_name(request.user),
+            )
+        return super().post(request, *args, **kwargs)
+
 
 @never_cache
 def Login_View(request):
     error_message = None
     if request.method == "POST":
+        submitted_identity = (
+            request.POST.get("user_profile")
+            or request.POST.get("username_display")
+            or ""
+        )
+        if _is_login_rate_limited(request, submitted_identity):
+            form = LoginForm(request.POST)
+            error_message = "Слишком много попыток входа. Повторите позже."
+            _create_auth_event(
+                AuthEvent.EventTypes.LOGIN_FAILURE,
+                request=request,
+                username=submitted_identity,
+                metadata={"reason": "rate_limited", "blocked": True},
+            )
+            return render(request, "desk/login.html", {"form": form, "error_message": error_message})
+
         form = LoginForm(request.POST)
         if form.is_valid():
             username = form.cleaned_data["resolved_username"]
             password = form.cleaned_data["password"]
             user = authenticate(request, username=username, password=password)
             if user is not None:
+                _reset_login_rate_limit(request, submitted_identity)
                 login(request, user)
+                _create_auth_event(
+                    AuthEvent.EventTypes.LOGIN_SUCCESS,
+                    request=request,
+                    user=user,
+                    username=username,
+                )
                 return redirect("index")
+            _register_login_failure(
+                request,
+                submitted_identity,
+                username=username,
+            )
             error_message = "Неверный логин или пароль"
+        else:
+            _register_login_failure(
+                request,
+                submitted_identity,
+                username=request.POST.get("username_display") or request.POST.get("user_profile") or "",
+                reason="invalid_form",
+            )
     else:
         form = LoginForm()
     return render(request, "desk/login.html", {"form": form, "error_message": error_message})
@@ -1311,6 +1596,30 @@ def statistics_report(request):
         "selected_statistics_technician": selected_technician,
     }
     return render(request, "desk/statistics.html", context)
+
+
+@never_cache
+def healthcheck(request):
+    snapshot = _build_system_status_snapshot()
+    http_status = 200 if snapshot["overall_status"] in {"ok", "warning"} else 503
+    return JsonResponse(snapshot, status=http_status)
+
+
+@never_cache
+@login_required
+def system_status(request):
+    if not _can_view_system_status(request.user):
+        messages.error(request, "Страница состояния системы доступна только техперсоналу.")
+        return redirect("index")
+
+    context = {
+        "system_status": _build_system_status_snapshot(),
+        "recent_auth_events": AuthEvent.objects.select_related("user").all()[:20],
+        "login_rate_limit_attempts": getattr(settings, "LOGIN_RATE_LIMIT_ATTEMPTS", 5),
+        "login_rate_limit_window_seconds": getattr(settings, "LOGIN_RATE_LIMIT_WINDOW_SECONDS", 300),
+        "login_rate_limit_block_seconds": getattr(settings, "LOGIN_RATE_LIMIT_BLOCK_SECONDS", 900),
+    }
+    return render(request, "desk/system_status.html", context)
 
 
 @login_required

@@ -6,6 +6,7 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from django.core import mail
+from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -15,6 +16,7 @@ from django.utils import timezone
 
 from .forms import LoginForm, ProfileSettingsForm, TicketForm, VerboseNameBackend
 from .models import (
+    AuthEvent,
     Document,
     Notification,
     Ticket,
@@ -22,6 +24,7 @@ from .models import (
     admin_group_name,
     director_group_name,
     executor_group_name,
+    technical_staff_group_name,
     get_default_technician,
 )
 from .views import _build_movement_events, _get_notification_email, _notify_users
@@ -87,6 +90,9 @@ class VerboseNameBackendTests(TestCase):
     def test_director_group_is_created_automatically(self):
         self.assertTrue(Group.objects.filter(name=director_group_name).exists())
 
+    def test_technical_staff_group_is_created_automatically(self):
+        self.assertTrue(Group.objects.filter(name=technical_staff_group_name).exists())
+
     def test_get_default_technician_prefers_first_director_user_id(self):
         director_group = Group.objects.get(name=director_group_name)
         executor_group = Group.objects.get(name=executor_group_name)
@@ -151,11 +157,85 @@ class VerboseNameBackendTests(TestCase):
         self.assertIn("no-cache", cache_control)
         self.assertIn("no-store", cache_control)
 
+    @override_settings(
+        LOGIN_RATE_LIMIT_ATTEMPTS=2,
+        LOGIN_RATE_LIMIT_WINDOW_SECONDS=60,
+        LOGIN_RATE_LIMIT_BLOCK_SECONDS=60,
+    )
+    def test_login_view_blocks_repeated_failed_attempts_and_logs_events(self):
+        cache.clear()
+
+        first_response = self.client.post(
+            reverse("login"),
+            {
+                "username_display": "Неизвестный пользователь",
+                "password": "wrong-password",
+            },
+        )
+        second_response = self.client.post(
+            reverse("login"),
+            {
+                "username_display": "Неизвестный пользователь",
+                "password": "wrong-password",
+            },
+        )
+        blocked_response = self.client.post(
+            reverse("login"),
+            {
+                "username_display": "Неизвестный пользователь",
+                "password": "wrong-password",
+            },
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertContains(blocked_response, "Слишком много попыток входа")
+        self.assertEqual(
+            AuthEvent.objects.filter(event_type=AuthEvent.EventTypes.LOGIN_FAILURE).count(),
+            3,
+        )
+        self.assertTrue(
+            AuthEvent.objects.filter(
+                event_type=AuthEvent.EventTypes.LOGIN_FAILURE,
+                metadata__reason="rate_limited",
+            ).exists()
+        )
+
+    def test_login_success_and_logout_are_logged(self):
+        user = User.objects.create_user(username="audit-user", password="secret123")
+        profile = _create_profile(user, "Аудит Пользователь")
+
+        login_response = self.client.post(
+            reverse("login"),
+            {
+                "user_profile": profile.pk,
+                "username_display": "Аудит Пользователь",
+                "password": "secret123",
+            },
+        )
+        logout_response = self.client.post(reverse("logout"))
+
+        self.assertEqual(login_response.status_code, 302)
+        self.assertEqual(logout_response.status_code, 302)
+        self.assertTrue(
+            AuthEvent.objects.filter(
+                user=user,
+                event_type=AuthEvent.EventTypes.LOGIN_SUCCESS,
+            ).exists()
+        )
+        self.assertTrue(
+            AuthEvent.objects.filter(
+                user=user,
+                event_type=AuthEvent.EventTypes.LOGOUT,
+            ).exists()
+        )
+
 
 class TicketAccessTests(TestCase):
     def setUp(self):
         self.admin_group = Group.objects.get(name=admin_group_name)
         self.executor_group = Group.objects.get(name=executor_group_name)
+        self.technical_staff_group = Group.objects.get(name=technical_staff_group_name)
 
         self.admin = User.objects.get(username="admin")
 
@@ -166,6 +246,10 @@ class TicketAccessTests(TestCase):
         self.executor_2 = User.objects.create_user(username="executor-2", password="secret123")
         _create_profile(self.executor_2, "Исполнитель 2")
         self.executor_2.groups.add(self.executor_group)
+
+        self.technical_staff = User.objects.create_user(username="tech-staff", password="secret123")
+        _create_profile(self.technical_staff, "Технический специалист")
+        self.technical_staff.groups.add(self.technical_staff_group)
 
         self.user = User.objects.create_user(username="user-1", password="secret123")
         _create_profile(self.user, "Пользователь 1")
@@ -350,6 +434,38 @@ class TicketAccessTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("index"))
+
+    def test_admin_cannot_open_system_status_page(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("system_status"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("index"))
+
+    def test_technical_staff_can_open_system_status_page(self):
+        self.client.force_login(self.technical_staff)
+
+        response = self.client.get(reverse("system_status"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("system_status", response.context)
+
+    def test_executor_cannot_open_system_status_page(self):
+        self.client.force_login(self.executor_1)
+
+        response = self.client.get(reverse("system_status"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("index"))
+
+    def test_healthcheck_returns_ok_payload(self):
+        response = self.client.get(reverse("healthcheck"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("overall_status", payload)
+        self.assertIn("checks", payload)
 
     def test_index_is_paginated_by_eighteen_tickets(self):
         self.client.force_login(self.admin)
